@@ -1,10 +1,19 @@
-use ndarray::{ArrayView, ArrayView2, Dimension, Ix2, SliceArg, SliceInfo, SliceInfoElem};
+use ndarray::{Array2, ArrayView, Dimension, Ix2, SliceArg, SliceInfo, SliceInfoElem};
+use sdl2::event::Event;
+use sdl2::image::InitFlag;
+use sdl2::keyboard::Keycode;
+use sdl2::pixels::PixelFormatEnum;
+use sdl2::rect::Rect;
+use sdl2::render::{Texture, TextureCreator};
+use sdl2::surface::Surface;
+use sdl2::video::WindowContext;
 
 use std::collections::hash_map::DefaultHasher;
+use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 
-use super::traits::Hashable;
-use super::traits::Pixelize;
+use super::traits::{Hashable, SdlView};
+use super::traits::{Pixelizable, SdlTexturable};
 use super::types::BoundaryHash;
 use super::types::Pixel;
 
@@ -28,11 +37,11 @@ where
     /// The hash of the current tile. This is computed from the Type that the
     /// tile references. If two tiles have the same data, they will have
     /// the same hash, no matter the type.
-    id: TileHash,
+    pub id: TileHash,
 
     /// The hash of each side of the tile.
     /// Each tuple represents opposite sides on an axis of the tile.
-    hashes: Vec<(BoundaryHash, BoundaryHash)>,
+    pub hashes: Vec<(BoundaryHash, BoundaryHash)>,
 }
 
 impl<'a, T, D> Tile<'a, T, D>
@@ -47,8 +56,8 @@ where
      * Create a new tile from an ndarray
      */
     pub fn new(data: ArrayView<'a, T, D>) -> Self {
-        let id = Self::get_id(&data);
-        let hashes = Self::get_hashes(&data);
+        let id = Self::compute_id(&data);
+        let hashes = Self::compute_hashes(&data);
 
         Tile { data, id, hashes }
     }
@@ -65,7 +74,7 @@ where
     /***
      * Compute the hash of the tile
      */
-    fn get_id(data: &ArrayView<'a, T, D>) -> TileHash {
+    fn compute_id(data: &ArrayView<'a, T, D>) -> TileHash {
         // we iterate through each element of the tile and hash it
         // it's important to note that the individual hashes of each element
         // cannot collide. Hasher must ensure this
@@ -83,7 +92,7 @@ where
     /***
      * Compute the boundary hashes of the tile
      */
-    fn get_hashes(data: &ArrayView<'a, T, D>) -> Vec<(BoundaryHash, BoundaryHash)> {
+    fn compute_hashes(data: &ArrayView<'a, T, D>) -> Vec<(BoundaryHash, BoundaryHash)> {
         let mut b_hashes: Vec<(BoundaryHash, BoundaryHash)> = Vec::new();
 
         let boundary_slice = SliceInfoElem::Slice {
@@ -137,11 +146,92 @@ where
     }
 }
 
-impl<'a> Pixelize<'a> for Tile<'a, Pixel, Ix2> {
+impl<'a> Pixelizable for Tile<'a, Pixel, Ix2> {
     /***
      * Returns a pixel vector representation of the current tile
      */
-    fn pixels(&'a self) -> ArrayView2<Pixel> {
-        self.data
+    fn pixels(&self) -> Array2<Pixel> {
+        self.data.to_owned()
+    }
+}
+
+impl<'a> SdlTexturable for Tile<'a, Pixel, Ix2> {
+    fn texture<'b>(
+        &self,
+        texture_creator: &'b TextureCreator<WindowContext>,
+    ) -> Result<Texture<'b>, String> {
+        let size = self.shape();
+
+        let mut flat_pixels: Vec<u8> = self
+            .pixels()
+            .into_iter()
+            .flat_map(|pixel| pixel.into_iter().map(|p| p))
+            .collect();
+
+        let surface = Surface::from_data(
+            &mut flat_pixels,
+            size as u32,     // width of the texture
+            size as u32,     // height of the texture
+            size as u32 * 3, // this is the number of channels for each pixel
+            PixelFormatEnum::RGB24,
+        )
+        .map_err(|e| e.to_string())?;
+
+        // create a texture from the surface
+        texture_creator
+            .create_texture_from_surface(surface)
+            .map_err(|e| e.to_string())
+    }
+}
+
+impl<'a> SdlView for Tile<'a, Pixel, Ix2> {
+    fn show(&self, sdl_context: &sdl2::Sdl) -> Result<(), String> {
+        const WIN_SIZE: u32 = 100;
+
+        let video_subsystem = sdl_context.video()?;
+        let _image_context = sdl2::image::init(InitFlag::PNG | InitFlag::JPG)?;
+        let window = video_subsystem
+            .window("Tile View", WIN_SIZE, WIN_SIZE)
+            .position_centered()
+            .build()
+            .map_err(|e| e.to_string())?;
+
+        let mut canvas = window
+            .into_canvas()
+            .software()
+            .build()
+            .map_err(|e| e.to_string())?;
+
+        let texture_creator = canvas.texture_creator();
+
+        let texture = &self.texture(&texture_creator)?;
+
+        canvas.copy(texture, None, Rect::new(0, 0, WIN_SIZE, WIN_SIZE))?;
+
+        canvas.present();
+
+        'mainloop: loop {
+            for event in sdl_context.event_pump()?.poll_iter() {
+                match event {
+                    Event::Quit { .. }
+                    | Event::KeyDown {
+                        keycode: Option::Some(Keycode::Escape),
+                        ..
+                    } => break 'mainloop,
+                    _ => {}
+                }
+            }
+
+            // sleep to not overwhelm system resources
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+
+        Ok(())
+    }
+}
+
+impl<'a> Debug for Tile<'a, Pixel, Ix2> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Tile {:#?}", self.data)
     }
 }

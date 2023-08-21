@@ -1,5 +1,5 @@
-use ndarray::{Array, Dimension, SliceArg, SliceInfo, SliceInfoElem};
-use std::{cell::RefCell, rc::Rc};
+use ndarray::{Array, Dimension, Ix2, NdIndex, SliceArg, SliceInfo, SliceInfoElem};
+use std::rc::Rc;
 
 use sdl2::event::Event;
 use sdl2::image::InitFlag;
@@ -8,7 +8,7 @@ use sdl2::rect::Rect;
 use sdl2::render::Texture as SdlTexture;
 
 use super::tile::Tile;
-use super::traits::{Hashable, SdlView};
+use super::traits::{Hashable, SdlTexturable, SdlView};
 use super::types::Pixel;
 use super::wavetile::WaveTile;
 
@@ -21,7 +21,7 @@ where
     T: Hashable,
 {
     // we keep an array of RefCell WaveTiles in order to interiorly mutate the possible tiles of each WaveTiles
-    pub wave: Array<RefCell<WaveTile<'a, T, D>>, D>,
+    pub wave: Array<WaveTile<'a, T, D>, D>,
 }
 
 impl<'a, T, D> Wave<'a, T, D>
@@ -33,35 +33,44 @@ where
     SliceInfo<Vec<SliceInfoElem>, D, <D as Dimension>::Smaller>: SliceArg<D>,
 {
     pub fn new(tiles: Vec<Rc<Tile<'a, T, D>>>, dim: D) -> Result<Self, String> {
-        // the lifetime of this vector is less than the lifetime 'a used by the tile
-        // that is the issue
+        let wave = Array::from_shape_fn(dim, |_| WaveTile::new(&tiles).unwrap());
 
-        // we need to convert the tiles into a vector of Rc<Tile>
-        // let tiles: Vec<Rc<_>> = tiles.into_iter().map(|tile| Rc::new(tile)).collect();
-
-        Ok(Wave {
-            wave: Array::from_shape_fn(dim, |_| RefCell::new(WaveTile::new(&tiles).unwrap())),
-        })
+        Ok(Wave { wave })
     }
 
-    pub fn collapse(&self, idx: D) {
-        let tile = &self.wave[idx];
+    pub fn collapse<I>(&self, index: I)
+    where
+        I: NdIndex<D>,
+    {
+        let wavetile = self.wave[index];
+    }
+
+    pub fn shape(&self) -> D {
+        self.wave.raw_dim()
     }
 
     pub fn propagate() {}
-
-    pub fn test(&'a self) {
-        println!("hello world")
-    }
 }
 
-/*
-impl Display for Wave<'_, Pixel, Ix2> {
+pub fn from_tiles<'a, T, D>(tiles: Vec<Tile<'a, T, D>>, dim: D) -> Result<Wave<'a, T, D>, String>
+where
+    T: Hashable,
+    D: Dimension,
+
+    // ensures that `D` is such that `SliceInfo` implements the `SliceArg` type of it.
+    SliceInfo<Vec<SliceInfoElem>, D, <D as Dimension>::Smaller>: SliceArg<D>,
+{
+    let tiles: Vec<Rc<_>> = tiles.into_iter().map(|tile| Rc::new(tile)).collect();
+
+    Wave::new(tiles, dim)
+}
+
+impl<'a> SdlView for Wave<'a, Pixel, Ix2> {
     fn show(&self, sdl_context: &sdl2::Sdl) -> Result<(), String> {
-        const TILE_SIZE: usize = 100;
+        const TILE_SIZE: usize = 200;
 
         // get the width and height of the wave window output
-        let [width, height] = self.wave.shape();
+        let [width, height]: [usize; 2] = self.wave.shape().try_into().unwrap();
         let (win_width, win_height) = (width * TILE_SIZE, height * TILE_SIZE);
 
         // init sdl
@@ -98,8 +107,8 @@ impl Display for Wave<'_, Pixel, Ix2> {
                 tile_texture.as_ref().expect("texture error"),
                 None,
                 Rect::new(
-                    (i as i32 % *width as i32) * TILE_SIZE as i32,
-                    (i as i32 / *width as i32) * TILE_SIZE as i32,
+                    (i as i32 % width as i32) * TILE_SIZE as i32,
+                    (i as i32 / width as i32) * TILE_SIZE as i32,
                     TILE_SIZE as u32,
                     TILE_SIZE as u32,
                 ),
@@ -121,10 +130,9 @@ impl Display for Wave<'_, Pixel, Ix2> {
             }
 
             // sleep 1s to not overwhelm system resources
-            // thread::sleep(Duration::from_secs(1));
+            std::thread::sleep(std::time::Duration::from_secs(1));
         }
 
         Ok(())
     }
 }
-*/

@@ -1,4 +1,4 @@
-## Types
+# Types
 
 ```rs
 pub struct Tile<'a, T, D> where T: Hashable,
