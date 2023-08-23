@@ -1,4 +1,4 @@
-use ndarray::{Array2, ArrayView, Dimension, Ix2, SliceArg, SliceInfo, SliceInfoElem};
+use ndarray::{Array2, ArrayView, Dim, Dimension, Ix2, IxDyn, SliceArg, SliceInfo, SliceInfoElem};
 use sdl2::event::Event;
 use sdl2::image::InitFlag;
 use sdl2::keyboard::Keycode;
@@ -29,6 +29,9 @@ pub type TileHash = u64;
 /// Note: all axes of the dynamic array are the same size.
 pub struct Tile<'a, T, D>
 where
+    // adding Sized as a trait bound disallows the use of IxDyn, which doesn't make sense in the
+    // context of wave function collapse anyway
+    D: Dimension + Sized,
     T: Hashable,
 {
     /// The data of the Tile. Note that the tile does not own its data.
@@ -46,7 +49,7 @@ where
 
 impl<'a, T, D> Tile<'a, T, D>
 where
-    D: Dimension,
+    D: Dimension + Sized,
     T: Hashable,
 
     // ensures that `D` is such that `SliceInfo` implements the `SliceArg` type of it.

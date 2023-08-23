@@ -1,5 +1,10 @@
-use ndarray::{Array, Dimension, Ix2, NdIndex, SliceArg, SliceInfo, SliceInfoElem};
+use std::collections::HashSet;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
+
+use ndarray::{s, Array, Dim, Dimension, Ix2, IxDyn, NdIndex, SliceArg, SliceInfo, SliceInfoElem};
+
+use rayon::prelude::*;
 
 use sdl2::event::Event;
 use sdl2::image::InitFlag;
@@ -12,22 +17,25 @@ use super::traits::{Hashable, SdlTexturable, SdlView};
 use super::types::Pixel;
 use super::wavetile::WaveTile;
 
+// TODO: use ndarray NdIndex<D> type if possible, this is a hack
+type Index = Vec<usize>;
+
 /// A `Wave` is a `D` dimensional array of `WaveTile`s.
 ///
 /// `D` is the dimension of the wave, as well as the dimension of each element of each `WaveTile`.
 /// `T` is the type of the element of the wave. All `WaveTile`s for a `Wave` hold the same type.
 pub struct Wave<'a, T, D>
 where
+    D: Dimension + Sized,
     T: Hashable,
 {
-    // we keep an array of RefCell WaveTiles in order to interiorly mutate the possible tiles of each WaveTiles
     pub wave: Array<WaveTile<'a, T, D>, D>,
 }
 
 impl<'a, T, D> Wave<'a, T, D>
 where
+    D: Dimension + Sized,
     T: Hashable,
-    D: Dimension,
 
     // ensures that `D` is such that `SliceInfo` implements the `SliceArg` type of it.
     SliceInfo<Vec<SliceInfoElem>, D, <D as Dimension>::Smaller>: SliceArg<D>,
@@ -38,24 +46,102 @@ where
         Ok(Wave { wave })
     }
 
-    pub fn collapse<I>(&self, index: I)
-    where
-        I: NdIndex<D>,
-    {
-        let wavetile = self.wave[index];
+    pub fn test(&self, idx: Box<dyn NdIndex<D>>) {}
+
+    // TODO: index type isn't great. Should be [usize; N] where N is ndim
+    pub fn collapse(&self, start: Vec<usize>) {
+        let strides = self.wave.strides();
+
+        // compute an nd index from a given index and the local strides
+        let compute_ndindex = |idx: usize| -> Index {
+            let mut nd_index: Index = Vec::new();
+
+            strides.iter().fold(idx, |idx_remain, &stride| {
+                let stride = stride as usize;
+                nd_index.push(idx_remain / stride);
+                idx_remain % stride
+            });
+
+            nd_index
+        };
+
+        // compute manhattan distance between `start` and `index`
+        let manhattan_dist = |index: &Index| -> usize {
+            start
+                .iter()
+                .zip(index.iter())
+                .map(|(&a, &b)| ((a as isize) - (b as isize)) as usize)
+                .sum()
+        };
+
+        let max_manhattan_dist = self
+            .wave
+            .iter()
+            .enumerate()
+            .map(|(i, _)| compute_ndindex(i))
+            .map(|nd_index| manhattan_dist(&nd_index))
+            .max()
+            .unwrap();
+
+        let mut wavetile_groups: Vec<Vec<&WaveTile<'a, T, D>>> =
+            vec![Vec::new(); max_manhattan_dist];
+
+        self.wave
+            .iter()
+            .enumerate()
+            .map(|(i, wavetile)| {
+                let nd_index = compute_ndindex(i);
+                (manhattan_dist(&nd_index), wavetile)
+            })
+            .for_each(|(dist, wavetile)| {
+                wavetile_groups[dist].push(wavetile);
+            });
+
+        // &self.wave[IxDyn(&[1, 2])];
+
+        for wavetile_group in wavetile_groups.into_iter() {
+            // wavetile_group.into_par_iter().map(|idx| {});
+        }
+    }
+
+    // TODO: index type isn't great. Should be [usize; N] where N is ndim
+    fn neighbors<A>(array: &Array<A, D>, index: &Vec<usize>) -> Vec<Vec<usize>> {
+        let mut neighbors: Vec<Vec<usize>> = Vec::new();
+
+        let shape = array.shape();
+        let ndim = array.ndim();
+
+        for d in 1..ndim {
+            let axis = d - 1;
+            let (min_bd, max_bd) = (0, shape[axis]);
+
+            for delta in [-1, 1].into_iter() {
+                let axis_index = index[d] + (delta as usize);
+
+                let range = min_bd..=max_bd;
+
+                // TODO: enable spherical/kleinbottle wrapping via enum
+                if range.contains(&axis_index) {
+                    let mut neighbor_index = index.clone();
+                    neighbor_index[d] = axis_index;
+
+                    neighbors.push(neighbor_index);
+                }
+            }
+        }
+
+        neighbors
     }
 
     pub fn shape(&self) -> D {
         self.wave.raw_dim()
     }
-
-    pub fn propagate() {}
 }
 
 pub fn from_tiles<'a, T, D>(tiles: Vec<Tile<'a, T, D>>, dim: D) -> Result<Wave<'a, T, D>, String>
 where
     T: Hashable,
-    D: Dimension,
+    D: Dimension + Sized,
 
     // ensures that `D` is such that `SliceInfo` implements the `SliceArg` type of it.
     SliceInfo<Vec<SliceInfoElem>, D, <D as Dimension>::Smaller>: SliceArg<D>,

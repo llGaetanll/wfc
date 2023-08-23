@@ -1,4 +1,5 @@
 use ndarray::{Array2, Dimension, Ix2, SliceArg, SliceInfo, SliceInfoElem};
+use rand::seq::SliceRandom;
 use rand::Rng;
 use sdl2::event::Event;
 use sdl2::image::InitFlag;
@@ -20,6 +21,7 @@ use super::types::{BoundaryHash, Pixel};
 /// `D` is the dimension of each tile
 pub struct WaveTile<'a, T, D>
 where
+    D: Dimension + Sized,
     T: Hashable,
 {
     /// The list of possible tiles that the WaveTile can be
@@ -40,9 +42,14 @@ where
     shape: usize,
 }
 
+#[derive(Debug)]
+enum CollapseError {
+    NoOptions,
+}
+
 impl<'a, T, D> WaveTile<'a, T, D>
 where
-    D: Dimension,
+    D: Dimension + Sized,
     T: Hashable,
 
     // ensures that `D` is such that `SliceInfo` implements the `SliceArg` type of it.
@@ -56,20 +63,19 @@ where
         // if the remaining tiles are not of the same shape, we return an error
         let shape = tiles.get(0).unwrap().shape();
 
-        let tiles = tiles
+        let tile_tuples = tiles
             .iter()
             .map(|tile| (Rc::clone(tile), 0))
             .collect::<Vec<(Rc<Tile<T, D>>, usize)>>();
 
         // TODO: assert that all tiles are the same shape
         Ok(WaveTile {
-            possible_tiles: RefCell::new(tiles),
+            entropy: Self::compute_entropy(&tile_tuples),
+
+            possible_tiles: RefCell::new(tile_tuples),
 
             hashes: Self::derive_hashes(&tiles),
 
-            entropy: Self::compute_entropy(&tiles),
-
-            // this is the shape of the WaveTile
             shape,
         })
     }
@@ -103,18 +109,32 @@ where
         hashes
     }
 
-    // FIXME: logic incorrect
-    pub fn collapse(&self) {
-        let n = self.possible_tiles.borrow().len();
-        let rand_idx = rand::thread_rng().gen_range(0..n);
+    pub fn collapse(&self) -> Result<(), CollapseError> {
+        let mut rng = rand::thread_rng();
 
-        // collapse the tile list to a single tile
-        self.possible_tiles
-            .borrow_mut()
-            .iter_mut()
+        let available_indices: Vec<usize> = self
+            .possible_tiles
+            .borrow()
+            .iter()
             .enumerate()
-            .filter(|(i, _)| *i != rand_idx)
-            .for_each(|(_, &mut (_, ref mut count))| *count += 1);
+            .filter(|(_, (_, n))| *n == 0)
+            .map(|(i, _)| i)
+            .collect();
+
+        match available_indices.choose(&mut rng) {
+            Some(&rand_idx) => {
+                // collapse the tile list to a single tile
+                self.possible_tiles
+                    .borrow_mut()
+                    .iter_mut()
+                    .enumerate()
+                    .filter(|(i, _)| *i != rand_idx)
+                    .for_each(|(_, &mut (_, ref mut count))| *count += 1);
+
+                Ok(())
+            }
+            None => Err(CollapseError::NoOptions),
+        }
     }
 
     /***
