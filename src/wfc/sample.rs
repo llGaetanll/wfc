@@ -1,5 +1,5 @@
 use image::{GenericImageView, Pixel as ImgPixel};
-use ndarray::{Array, Dimension, Ix2, SliceArg, SliceInfo, SliceInfoElem};
+use ndarray::{Array, Dim, Dimension, Ix2, SliceArg, SliceInfo, SliceInfoElem};
 use sdl2::event::Event;
 use sdl2::image::InitFlag;
 use sdl2::keyboard::Keycode;
@@ -11,23 +11,26 @@ use sdl2::video::WindowContext;
 use std::path::Path;
 
 use super::tile::Tile;
-use super::traits::{Hashable, Pixelizable, SdlTexturable, SdlView};
+use super::traits::{Hashable, Pixelizable, SdlTexturable};
 use super::types::Pixel;
 
 /// We use an ndarray of type A and dimension D to store our data
 /// `A` is the dimension of the Sample, `T` is the type of each element
-pub struct Sample<T, D>
+#[derive(Clone)]
+pub struct Sample<T, const N: usize>
 where
     T: Hashable,
+
+    Dim<[usize; N]>: Dimension,
 {
-    data: Array<T, D>,
+    data: Array<T, Dim<[usize; N]>>,
 }
 
 /***
  * Creates a `Sample` object containing an image represented as a 2D array
  * of `Pixel` elements.
  */
-pub fn from_image(path: &Path) -> Result<Sample<Pixel, Ix2>, String> {
+pub fn from_image(path: &Path) -> Result<Sample<Pixel, 2>, String> {
     // open the sample image
     let img = image::open(path).map_err(|e| e.to_string())?;
     let (width, height) = img.dimensions();
@@ -42,20 +45,21 @@ pub fn from_image(path: &Path) -> Result<Sample<Pixel, Ix2>, String> {
     Ok(Sample { data: pixels })
 }
 
-impl<T, D> Sample<T, D>
+impl<T, const N: usize> Sample<T, N>
 where
-    D: Dimension,
     T: Hashable,
+    Dim<[usize; N]>: Dimension,
 
     // ensures that `D` is such that `SliceInfo` implements the `SliceArg` type of it.
-    SliceInfo<Vec<SliceInfoElem>, D, <D as Dimension>::Smaller>: SliceArg<D>,
+    SliceInfo<Vec<SliceInfoElem>, Dim<[usize; N]>, <Dim<[usize; N]> as Dimension>::Smaller>:
+        SliceArg<Dim<[usize; N]>>,
 {
     /***
      * Return a vector of tiles by performing sliding windows.
      *
      * `size`: the side length of the window.
      */
-    pub fn window(&self, size: usize) -> Vec<Tile<T, D>> {
+    pub fn window<'a>(&'a self, size: usize) -> Vec<Tile<'a, T, N>> {
         let n = self.data.ndim();
 
         // create a cubic window of side length `size`
@@ -64,7 +68,7 @@ where
             win_size[i] = size;
         }
 
-        let tiles: Vec<Tile<T, D>> = self
+        let tiles: Vec<Tile<T, N>> = self
             .data
             .windows(win_size)
             .into_iter()
@@ -75,13 +79,13 @@ where
     }
 }
 
-impl Pixelizable for Sample<Pixel, Ix2> {
+impl Pixelizable for Sample<Pixel, 2> {
     fn pixels(&self) -> ndarray::Array2<Pixel> {
         self.data.to_owned()
     }
 }
 
-impl SdlTexturable for Sample<Pixel, Ix2> {
+impl SdlTexturable for Sample<Pixel, 2> {
     fn texture<'b>(
         &self,
         texture_creator: &'b TextureCreator<WindowContext>,
@@ -110,7 +114,7 @@ impl SdlTexturable for Sample<Pixel, Ix2> {
     }
 }
 
-impl SdlView for Sample<Pixel, Ix2> {
+impl Sample<Pixel, 2> {
     fn show(&self, sdl_context: &sdl2::Sdl) -> Result<(), String> {
         let [width, height]: [usize; 2] = self.data.shape().try_into().unwrap();
 

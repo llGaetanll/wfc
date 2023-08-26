@@ -1,3 +1,6 @@
+use std::sync::mpsc::Receiver;
+use std::thread;
+
 use ndarray::Array2;
 
 use sdl2::render::{Texture, TextureCreator};
@@ -15,12 +18,16 @@ pub trait Pixelizable {
 /***
 * Can call show on the object to display a window
 */
+/*
 pub trait SdlView {
+    type Updates;
+
     /***
      * Opens a window displaying the object
      */
-    fn show(&self, sdl_context: &sdl2::Sdl) -> Result<(), String>;
+    fn show(&self, sdl_context: &sdl2::Sdl, rx: Receiver<Self::Updates>) -> Result<(), String>;
 }
+*/
 
 /***
 * Can create a texture from the object

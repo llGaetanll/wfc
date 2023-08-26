@@ -1,19 +1,22 @@
-use ndarray::{Array2, ArrayView, Dim, Dimension, Ix2, IxDyn, SliceArg, SliceInfo, SliceInfoElem};
+use ndarray::{Array2, ArrayView, Dim, Dimension, SliceArg, SliceInfo, SliceInfoElem};
 use sdl2::event::Event;
 use sdl2::image::InitFlag;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::rect::Rect;
-use sdl2::render::{Texture, TextureCreator};
+use sdl2::render::Texture;
+use sdl2::render::TextureCreator;
 use sdl2::surface::Surface;
 use sdl2::video::WindowContext;
 
 use std::collections::hash_map::DefaultHasher;
 use std::fmt::Debug;
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
+use std::hash::Hasher;
 
-use super::traits::{Hashable, SdlView};
-use super::traits::{Pixelizable, SdlTexturable};
+use super::traits::Hashable;
+use super::traits::Pixelizable;
+use super::traits::SdlTexturable;
 use super::types::BoundaryHash;
 use super::types::Pixel;
 
@@ -27,15 +30,13 @@ pub type TileHash = u64;
 /// the vector is exactly inline with `D`, but I don't know how I could do that
 ///
 /// Note: all axes of the dynamic array are the same size.
-pub struct Tile<'a, T, D>
+pub struct Tile<'a, T, const N: usize>
 where
-    // adding Sized as a trait bound disallows the use of IxDyn, which doesn't make sense in the
-    // context of wave function collapse anyway
-    D: Dimension + Sized,
     T: Hashable,
+    Dim<[usize; N]>: Dimension,
 {
     /// The data of the Tile. Note that the tile does not own its data.
-    data: ArrayView<'a, T, D>,
+    data: ArrayView<'a, T, Dim<[usize; N]>>,
 
     /// The hash of the current tile. This is computed from the Type that the
     /// tile references. If two tiles have the same data, they will have
@@ -44,21 +45,21 @@ where
 
     /// The hash of each side of the tile.
     /// Each tuple represents opposite sides on an axis of the tile.
-    pub hashes: Vec<(BoundaryHash, BoundaryHash)>,
+    pub hashes: [(BoundaryHash, BoundaryHash); N],
 }
 
-impl<'a, T, D> Tile<'a, T, D>
+impl<'a, T, const N: usize> Tile<'a, T, N>
 where
-    D: Dimension + Sized,
     T: Hashable,
+    Dim<[usize; N]>: Dimension,
 
-    // ensures that `D` is such that `SliceInfo` implements the `SliceArg` type of it.
-    SliceInfo<Vec<SliceInfoElem>, D, <D as Dimension>::Smaller>: SliceArg<D>,
+    SliceInfo<Vec<SliceInfoElem>, Dim<[usize; N]>, <Dim<[usize; N]> as Dimension>::Smaller>:
+        SliceArg<Dim<[usize; N]>>,
 {
     /***
      * Create a new tile from an ndarray
      */
-    pub fn new(data: ArrayView<'a, T, D>) -> Self {
+    pub fn new(data: ArrayView<'a, T, Dim<[usize; N]>>) -> Self {
         let id = Self::compute_id(&data);
         let hashes = Self::compute_hashes(&data);
 
@@ -77,7 +78,7 @@ where
     /***
      * Compute the hash of the tile
      */
-    fn compute_id(data: &ArrayView<'a, T, D>) -> TileHash {
+    fn compute_id(data: &ArrayView<'a, T, Dim<[usize; N]>>) -> TileHash {
         // we iterate through each element of the tile and hash it
         // it's important to note that the individual hashes of each element
         // cannot collide. Hasher must ensure this
@@ -95,8 +96,11 @@ where
     /***
      * Compute the boundary hashes of the tile
      */
-    fn compute_hashes(data: &ArrayView<'a, T, D>) -> Vec<(BoundaryHash, BoundaryHash)> {
-        let mut b_hashes: Vec<(BoundaryHash, BoundaryHash)> = Vec::new();
+    fn compute_hashes(
+        data: &ArrayView<'a, T, Dim<[usize; N]>>,
+    ) -> [(BoundaryHash, BoundaryHash); N] {
+        let mut b_hashes: [(BoundaryHash, BoundaryHash); N] = [(0, 0); N];
+        // = Vec::new();
 
         let boundary_slice = SliceInfoElem::Slice {
             start: 0,
@@ -104,14 +108,16 @@ where
             step: 1,
         };
 
-        let n = data.ndim();
-
         // helper to slice the array on a particular axis
+        // FIXME: switch to using arrays instead of vecs for free speedup
         let make_slice = |i: usize, side: isize| {
-            let mut slice_info = vec![boundary_slice; n];
+            let mut slice_info = vec![boundary_slice; N];
             slice_info[i] = SliceInfoElem::Index(side);
 
-            SliceInfo::<_, D, D::Smaller>::try_from(slice_info).unwrap()
+            SliceInfo::<_, Dim<[usize; N]>, <Dim<[usize; N]> as Dimension>::Smaller>::try_from(
+                slice_info,
+            )
+            .unwrap()
         };
 
         // helper to hash a vector of hashes
@@ -122,7 +128,7 @@ where
         };
 
         // for each dimension
-        for i in 0..n {
+        for i in 0..N {
             // front slice of the current axis
             let front = make_slice(i, 0);
 
@@ -142,14 +148,14 @@ where
             let back_hash = hash_vec(back_hashes);
 
             // add to hash list
-            b_hashes.push((front_hash, back_hash))
+            b_hashes[i] = (front_hash, back_hash);
         }
 
         b_hashes
     }
 }
 
-impl<'a> Pixelizable for Tile<'a, Pixel, Ix2> {
+impl<'a> Pixelizable for Tile<'a, Pixel, 2> {
     /***
      * Returns a pixel vector representation of the current tile
      */
@@ -158,7 +164,7 @@ impl<'a> Pixelizable for Tile<'a, Pixel, Ix2> {
     }
 }
 
-impl<'a> SdlTexturable for Tile<'a, Pixel, Ix2> {
+impl<'a> SdlTexturable for Tile<'a, Pixel, 2> {
     fn texture<'b>(
         &self,
         texture_creator: &'b TextureCreator<WindowContext>,
@@ -187,7 +193,7 @@ impl<'a> SdlTexturable for Tile<'a, Pixel, Ix2> {
     }
 }
 
-impl<'a> SdlView for Tile<'a, Pixel, Ix2> {
+impl<'a> Tile<'a, Pixel, 2> {
     fn show(&self, sdl_context: &sdl2::Sdl) -> Result<(), String> {
         const WIN_SIZE: u32 = 100;
 
@@ -233,8 +239,12 @@ impl<'a> SdlView for Tile<'a, Pixel, Ix2> {
     }
 }
 
-impl<'a> Debug for Tile<'a, Pixel, Ix2> {
+impl<'a, T, const N: usize> Debug for Tile<'a, T, N>
+where
+    T: Hashable + std::fmt::Debug,
+    Dim<[usize; N]>: Dimension,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Tile {:#?}", self.data)
+        write!(f, "{:?}", self.data)
     }
 }
