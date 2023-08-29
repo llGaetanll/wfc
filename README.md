@@ -32,15 +32,19 @@ things I still need to work on.
     This is great if your tiles come from a sliding window on an image, but not
     great when you want to *supply* them directly.
 
-2. The code has lots of clones, and generally not the best at the moment.
+2. Backtracking isn't implemented yet.
+
+    Although the datastructures allow it, backtracking isn't added yet resulting in some waves with holes in them.
+
+4. The code has lots of clones, and generally not the best at the moment.
 
     This shouldn't be hard to fix though, now that the main pillars are in place.
 
-3. The wave can be stopped early when no more change is required.
+5. The wave can be stopped early when no more change is required.
 
     This will probably be a fairly large, free improvement once its written.
 
-4. Better docs is required.
+6. Better docs is required.
 
 ## Getting Started
 
