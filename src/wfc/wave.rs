@@ -6,11 +6,11 @@ use std::fmt::Debug;
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::mpsc::Receiver;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc, Arc, RwLock};
 use std::thread;
 use std::time::SystemTime;
 
-use ndarray::{s, Array, Dim, Dimension, Ix2, IxDyn, NdIndex, SliceArg, SliceInfo, SliceInfoElem};
+use ndarray::{s, ArcArray, Array, Dim, Dimension, NdIndex, SliceArg, SliceInfo, SliceInfoElem};
 
 use rayon::prelude::*;
 
@@ -19,6 +19,8 @@ use sdl2::image::InitFlag;
 use sdl2::keyboard::Keycode;
 use sdl2::rect::Rect;
 use sdl2::render::Texture as SdlTexture;
+
+use crate::wfc::types::BoundaryHash;
 
 use super::sample::Sample;
 use super::tile::Tile;
@@ -33,7 +35,7 @@ use super::wavetile::WaveTile;
 /// `T` is the type of the element of the wave. All `WaveTile`s for a `Wave` hold the same type.
 pub struct Wave<'a, T, const N: usize>
 where
-    T: Hashable + std::fmt::Debug,
+    T: Hashable + Sync + std::fmt::Debug,
     Dim<[usize; N]>: Dimension, // ensures that [usize; N] is a Dimension implemented by ndarray
     [usize; N]: NdIndex<Dim<[usize; N]>>, // ensures that any [usize; N] is a valid index into the nd array
 
@@ -41,12 +43,12 @@ where
     SliceInfo<Vec<SliceInfoElem>, Dim<[usize; N]>, <Dim<[usize; N]> as Dimension>::Smaller>:
         SliceArg<Dim<[usize; N]>>,
 {
-    pub wave: Array<RefCell<WaveTile<'a, T, N>>, Dim<[usize; N]>>,
+    pub wave: ArcArray<RwLock<WaveTile<'a, T, N>>, Dim<[usize; N]>>,
 }
 
 impl<'a, T, const N: usize> Wave<'a, T, N>
 where
-    T: Hashable + std::fmt::Debug,
+    T: Hashable + Sync + Send + std::fmt::Debug,
     Dim<[usize; N]>: Dimension,
     [usize; N]: NdIndex<Dim<[usize; N]>>,
 
@@ -58,24 +60,27 @@ where
         // tiles are reference counted
         let tiles = tiles
             .into_iter()
-            .map(|tile| Rc::new(tile))
+            .map(|tile| Arc::new(tile))
             .collect::<Vec<_>>();
 
-        let wave = Array::from_shape_fn(shape, |_| RefCell::new(WaveTile::new(&tiles)));
+        let wave = ArcArray::from_shape_fn(shape, |_| RwLock::new(WaveTile::new(&tiles)));
 
         Ok(Wave { wave })
     }
 
-    fn min_entropy(&self) -> ([usize; N], &RefCell<WaveTile<'a, T, N>>) {
+    fn min_entropy(&self) -> ([usize; N], &RwLock<WaveTile<'a, T, N>>) {
         let strides = self.wave.strides();
 
-        self.wave
+        let res = self
+            .wave
             .iter()
             .filter(|&wavetile| {
-                let wavetile = wavetile.borrow();
+                let wavetile = wavetile.read().expect("thread hung");
 
                 // want non-collapsed tiles
-                wavetile.entropy > 1
+                let non_collapsed = wavetile.entropy > 1;
+
+                non_collapsed
             })
             .enumerate()
             .map(|(flat_index, wavetile)| {
@@ -84,17 +89,22 @@ where
                 (nd_index, wavetile)
             })
             .min_by_key(|&(_, wavetile)| {
-                let wavetile = wavetile.borrow();
+                let wavetile = wavetile.read().expect("thread hung");
 
-                wavetile.entropy
+                let entropy = wavetile.entropy;
+
+                entropy
             })
-            .unwrap()
+            .unwrap();
+
+        res
     }
 
-    fn max_entropy(&self) -> ([usize; N], &RefCell<WaveTile<'a, T, N>>) {
+    fn max_entropy(&self) -> ([usize; N], &RwLock<WaveTile<'a, T, N>>) {
         let strides = self.wave.strides();
 
-        self.wave
+        let res = self
+            .wave
             .iter()
             .enumerate()
             .map(|(flat_index, wavetile)| {
@@ -103,73 +113,90 @@ where
                 (nd_index, wavetile)
             })
             .max_by_key(|&(_, wavetile)| {
-                let wavetile = wavetile.borrow();
+                let wavetile = wavetile.read().expect("thread hung");
 
-                wavetile.entropy
+                let entropy = wavetile.entropy;
+
+                entropy
             })
-            .unwrap()
+            .unwrap();
+
+        res
     }
 
     /// Propagates the wave from an index `start`
     /// TODO: start shouldn't be updated
     pub fn propagate(&self, start: &[usize; N]) {
-        let t0 = SystemTime::now();
-
         let index_groups = self.get_index_groups(start);
 
         for index_group in index_groups.into_iter() {
             // all tiles in an index group can be performed at the same time
-            // TODO: this can be parallelized but wavetile needs to be Arc<Mutex<_>>
-            for index in index_group.into_iter() {
-                let wavetile = &self.wave[index];
-
+            index_group.par_iter().for_each(|&index| {
                 // note that if a `WaveTile` is on the edge of the wave, it might not have all its
                 // neighbors. This also depends on the wrapping logic chosen
                 let neighbors = self.compute_neighbors(&index);
                 let mut wavetile_neighbors: [(
-                    Option<&RefCell<WaveTile<'a, T, N>>>,
-                    Option<&RefCell<WaveTile<'a, T, N>>>,
-                ); N] = [(None, None); N];
+                    Option<HashSet<BoundaryHash>>,
+                    Option<HashSet<BoundaryHash>>,
+                ); N] = vec![(None, None); N].try_into().unwrap();
 
-                // from the neighbor indices, we construct a list of `WaveTile` neighbors
+                // from the neighbor indices, we construct a list of the neighbors hashes
                 for (axis_index, index_pair) in neighbors.into_iter().enumerate() {
-                    let index_pair: [Option<[usize; N]>; 2] = index_pair.into();
-                    let mut wavetile_pair: [Option<&RefCell<WaveTile<'a, T, N>>>; 2] = [None; 2];
+                    let mut wavetile_pair: (
+                        Option<HashSet<BoundaryHash>>,
+                        Option<HashSet<BoundaryHash>>,
+                    ) = (None, None);
 
-                    for (i, index) in index_pair.into_iter().enumerate() {
-                        wavetile_pair[i] = match index {
-                            Some(index) => {
-                                let wavetile = self.wave.get(index).unwrap();
-                                Some(wavetile)
-                            }
-                            None => None,
+                    let (left, right) = index_pair;
+
+                    wavetile_pair.0 = match left {
+                        Some(neighbor_index) => {
+                            let lock = self.wave.get(neighbor_index).unwrap();
+                            let wavetile = lock.read().expect("thread hung");
+
+                            let hashes = wavetile.hashes.get(axis_index).unwrap();
+                            let hashes = hashes.1.clone();
+
+                            // NOTE: return right hashes for left wavetile because this is a neighbor
+                            Some(hashes)
                         }
-                    }
+                        None => None,
+                    };
 
-                    let wavetile_pair: (
-                        Option<&RefCell<WaveTile<'a, T, N>>>,
-                        Option<&RefCell<WaveTile<'a, T, N>>>,
-                    ) = wavetile_pair.into();
+                    wavetile_pair.1 = match right {
+                        Some(neighbor_index) => {
+                            let lock = self.wave.get(neighbor_index).unwrap();
+                            let wavetile = lock.read().expect("thread hung");
+
+                            let hashes = wavetile.hashes.get(axis_index).unwrap();
+                            let hashes = hashes.1.clone();
+
+                            Some(hashes) // TODO: expensive
+                        }
+                        None => None,
+                    };
 
                     wavetile_neighbors[axis_index] = wavetile_pair;
                 }
 
                 // TODO: catch if a wavetile has no more options at this stage instead of on
                 // collapse?
-                wavetile.borrow_mut().update(wavetile_neighbors);
-            }
+                let lock = &self.wave[index];
+                let mut wavetile = lock.write().expect("thread hung");
+                wavetile.update(wavetile_neighbors);
+            });
         }
-
-        let t1 = SystemTime::now();
-        let duration = t1.duration_since(t0).unwrap();
-        // println!("{:?}", duration);
     }
 
     /// Collapses the wave
     /// TODO: add starting index
     pub fn collapse(&self, starting_index: Option<[usize; N]>) {
-        let (_, wavetile) = self.max_entropy();
-        let max_entropy = wavetile.borrow().entropy;
+        // scope this in order to avoid hanging
+        let max_entropy = {
+            let (_, wavetile) = self.max_entropy();
+            let wavetile = wavetile.read().expect("thread hung");
+            wavetile.entropy
+        };
 
         // if the wave is fully collapsed
         if max_entropy < 2 {
@@ -183,21 +210,31 @@ where
         };
 
         // collapse the starting tile
-        wavetile.borrow_mut().collapse();
+        {
+            let mut wavetile = wavetile.write().expect("thread hung");
+            wavetile.collapse();
+        }
+
         self.propagate(&index);
 
         // handle the rest of the wave
         loop {
             let (_, wavetile) = self.max_entropy();
-            let max_entropy = wavetile.borrow().entropy;
+            let max_entropy = {
+                let wavetile = wavetile.read().expect("thread hung");
+                wavetile.entropy
+            };
 
             if max_entropy < 2 {
                 break;
             };
 
             let (index, wavetile) = self.min_entropy();
+            {
+                let mut wavetile = wavetile.write().expect("thread hung");
+                wavetile.collapse();
+            }
 
-            wavetile.borrow_mut().collapse();
             self.propagate(&index);
         }
     }
@@ -246,13 +283,17 @@ where
             .max()
             .unwrap();
 
-        let mut index_groups: Vec<Vec<[usize; N]>> = vec![Vec::new(); max_manhattan_dist + 1];
+        let mut index_groups: Vec<Vec<[usize; N]>> = vec![Vec::new(); max_manhattan_dist];
 
         for (index, _) in self.wave.iter().enumerate() {
             let nd_index = Self::compute_nd_index(index, strides);
             let dist = manhattan_dist(&nd_index);
 
-            index_groups[dist].push(nd_index);
+            if dist == 0 {
+                continue;
+            }
+
+            index_groups[dist - 1].push(nd_index);
         }
 
         index_groups
@@ -362,9 +403,7 @@ impl<'a> Wave<'a, Pixel, 2> {
             .wave
             .iter()
             .map(|wavetile| {
-                let wavetile = wavetile.borrow();
-
-                // println!("{}", wavetile.entropy);
+                let wavetile = wavetile.read().expect("thread hung");
 
                 wavetile.texture(&texture_creator)
             })
@@ -408,7 +447,7 @@ impl<'a> Wave<'a, Pixel, 2> {
 
 impl<'a, T, const N: usize> Debug for Wave<'a, T, N>
 where
-    T: Hashable + std::fmt::Debug,
+    T: Hashable + Sync + Send + std::fmt::Debug,
     Dim<[usize; N]>: Dimension,
     [usize; N]: NdIndex<Dim<[usize; N]>>,
 
