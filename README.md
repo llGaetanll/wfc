@@ -1,42 +1,49 @@
-# Types
+# Wave Function Collapse
 
-```rs
-pub struct Tile<'a, T, D> where T: Hashable,
-{
-    /// The data of the Tile. Note that the tile does not own its data.
-    data: ArrayView<'a, T, D>,
+This is my attempt at implementing [the Wave Function Collapse algorithm](https://github.com/mxgmn/WaveFunctionCollapse) in Rust.
 
-    /// The hash of the current tile. This is computed from the Type that the
-    /// tile references. If two tiles have the same data, they will have
-    /// the same hash, no matter the type.
-    id: TileHash,
+## Some Context
 
-    /// The hash of each side of the tile.
-    /// Each tuple represents opposite sides on an axis of the tile.
-    hashes: Vec<(BoundaryHash, BoundaryHash)>,
-}
+I'm fairly new to Rust, I started this project to get more experience with the
+language, and it has allowed me to touch on almost all main aspects of the
+language.
 
-pub struct WaveTile<'a, T, D>
-where
-    T: Hashable,
-{
-    /// The list of possible tiles that the WaveTile can be
-    ///
-    /// For each tile, we store a unsigned integer which is initialized as 0. If
-    /// a tile is no longer possible, this number is incremented to 1. In every
-    /// subsequent pass, if a number i > 0, it is again incremented. this allows
-    /// us to reverse the operation.
-    possible_tiles: Vec<(Rc<Tile<'a, T, D>>, usize)>,
+## Some Notes
 
-    /// The shape of the WaveTile
-    shape: usize,
-}
+**This implementation is still in its infancy and the code is far from perfect**,
+but it does do *some* things right.
 
-pub struct Wave<'a, T, D>
-where
-    T: Hashable,
-{
-    // we keep an array of RefCell WaveTiles in order to interiorly mutate the possible tiles of each WaveTiles
-    pub wave: Array<RefCell<WaveTile<'a, T, D>>, D>,
-}
+1. Works in **any dimension** from 1 to 6. (*dimensions for which `ndarray` has
+   a `const N: usize` where `Dim<[usize; N]>`* is an implemented type)
+
+   **Note**: Only tested in 2D for now.
+
+2. Works on **any type** that implements the simple `Hashable` trait.
+3. Type safety at compile time! Type conditions on the wave are checked at
+   compile time, so no surprises at runtime.
+4. **Parallelism**! The wave propagation step is parallelized out of the box
+   using `rayon` resulting in `4x` improvements on my minimal testing so far
+
+While this all sounds very nice, this project is not perfect. Here are some
+things I still need to work on.
+
+1. `Tiles` don't own their data.
+
+    This is great if your tiles come from a sliding window on an image, but not
+    great when you want to *supply* them directly.
+
+2. The code has lots of clones, and generally not the best at the moment.
+
+    This shouldn't be hard to fix though, now that the main pillars are in place.
+
+3. The wave can be stopped early when no more change is required.
+
+    This will probably be a fairly large, free improvement once its written.
+
+4. Better docs is required.
+
+## Getting Started
+
+```
+cargo run
 ```
