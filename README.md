@@ -48,6 +48,11 @@ things I still need to work on.
 
 ## Getting Started
 
+You might need sdl binaries for you system if you want to display the wave.
+Other than that
+
 ```
-cargo run
+cargo run -- ./assets/sample.png 10 3x3
 ```
+
+should get you some results!
