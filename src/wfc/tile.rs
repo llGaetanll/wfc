@@ -1,3 +1,4 @@
+use ndarray::{Array, ArrayBase, OwnedRepr, RawData, ViewRepr};
 use ndarray::{Array2, ArrayView, Dim, Dimension, SliceArg, SliceInfo, SliceInfoElem};
 use sdl2::event::Event;
 use sdl2::image::InitFlag;
@@ -21,6 +22,8 @@ use super::types::BoundaryHash;
 use super::types::Pixel;
 
 pub type TileHash = u64;
+
+pub type DimN<const N: usize> = Dim<[usize; N]>;
 
 /// A `Tile` is a view into our Sample
 /// `D` is the dimension of each tile
@@ -194,7 +197,7 @@ impl<'a> SdlTexturable for Tile<'a, Pixel, 2> {
 }
 
 impl<'a> Tile<'a, Pixel, 2> {
-    fn show(&self, sdl_context: &sdl2::Sdl) -> Result<(), String> {
+    pub fn show(&self, sdl_context: &sdl2::Sdl) -> Result<(), String> {
         const WIN_SIZE: u32 = 100;
 
         let video_subsystem = sdl_context.video()?;

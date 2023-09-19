@@ -123,7 +123,7 @@ where
     }
 
     /// Collapses a `WaveTile` to one of its possible tiles, at random.
-    pub fn collapse(&mut self) -> Result<(), ()> {
+    pub fn collapse(&mut self) -> Option<()> {
         let mut rng = rand::thread_rng();
 
         let available_indices: Vec<usize> = self
@@ -151,11 +151,11 @@ where
 
                 self.entropy = 1;
 
-                Ok(())
+                Some(())
             }
             None => {
                 println!("No more options!");
-                Err(())
+                None
             }
         }
     }
@@ -165,6 +165,11 @@ where
         &mut self,
         neighbor_hashes: [(Option<HashSet<BoundaryHash>>, Option<HashSet<BoundaryHash>>); N],
     ) {
+        // no need to update if the wavetile is collapsed
+        if self.entropy < 2 {
+            return;
+        }
+
         let mut possible_hashes: [(HashSet<BoundaryHash>, HashSet<BoundaryHash>); N] =
             vec![(HashSet::new(), HashSet::new()); N]
                 .try_into()
@@ -225,6 +230,10 @@ where
         // 2. for each tile, iterate over each axis, if any of its hashes are NOT in the
         //    possible_hashes, filter out the tile.
         for (tile, count) in self.possible_tiles.iter_mut() {
+            if *count > 0 {
+                *count += 1;
+            }
+
             let mut invalid = false;
             for (axis_index, axis_hashes) in tile.hashes.iter().enumerate() {
                 let (wavetile_left, wavetile_right) = &possible_hashes[axis_index];
@@ -236,8 +245,8 @@ where
                 }
             }
 
-            if *count > 0 || invalid {
-                *count += 1; // TODO: short circuit on count > 0 is an easy optimization
+            if invalid {
+                *count += 1;
             }
         }
 

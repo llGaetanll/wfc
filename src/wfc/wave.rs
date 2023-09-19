@@ -22,8 +22,8 @@ use sdl2::render::Texture as SdlTexture;
 
 use crate::wfc::types::BoundaryHash;
 
-use super::sample::Sample;
-use super::tile::Tile;
+use super::sample::{self, Sample};
+use super::tile::{DimN, Tile};
 use super::traits::Hashable;
 use super::traits::SdlTexturable;
 use super::types::Pixel;
@@ -44,6 +44,42 @@ where
         SliceArg<Dim<[usize; N]>>,
 {
     pub wave: ArcArray<RwLock<WaveTile<'a, T, N>>, Dim<[usize; N]>>,
+}
+
+pub struct MyWave<'a, T, const N: usize>
+where
+    T: Hashable + Sync + std::fmt::Debug,
+    Dim<[usize; N]>: Dimension, // ensures that [usize; N] is a Dimension implemented by ndarray
+    [usize; N]: NdIndex<Dim<[usize; N]>>, // ensures that any [usize; N] is a valid index into the nd array
+
+    // ensures that `D` is such that `SliceInfo` implements the `SliceArg` type of it.
+    SliceInfo<Vec<SliceInfoElem>, Dim<[usize; N]>, <Dim<[usize; N]> as Dimension>::Smaller>:
+        SliceArg<Dim<[usize; N]>>,
+{
+    wave: ArcArray<RwLock<WaveTile<'a, T, N>>, Dim<[usize; N]>>,
+}
+
+impl<'a, T, const N: usize> MyWave<'a, T, N>
+where
+    T: Hashable + Sync + Send + std::fmt::Debug,
+    Dim<[usize; N]>: Dimension,
+    [usize; N]: NdIndex<Dim<[usize; N]>>,
+
+    // ensures that `D` is such that `SliceInfo` implements the `SliceArg` type of it.
+    SliceInfo<Vec<SliceInfoElem>, Dim<[usize; N]>, <Dim<[usize; N]> as Dimension>::Smaller>:
+        SliceArg<Dim<[usize; N]>>,
+{
+    fn new(tiles: Vec<Tile<'a, T, N>>, shape: Dim<[usize; N]>) -> Result<Self, String> {
+        let tiles = tiles
+            .into_iter()
+            .map(|tile| Arc::new(tile))
+            .collect::<Vec<_>>();
+
+        // tiles are reference counted
+        let wave = ArcArray::from_shape_fn(shape, |_| RwLock::new(WaveTile::new(&tiles)));
+
+        Ok(MyWave { wave })
+    }
 }
 
 impl<'a, T, const N: usize> Wave<'a, T, N>
@@ -74,7 +110,8 @@ where
         let res = self
             .wave
             .iter()
-            .filter(|&wavetile| {
+            .enumerate()
+            .filter(|&(_, wavetile)| {
                 let wavetile = wavetile.read().expect("thread hung");
 
                 // want non-collapsed tiles
@@ -82,7 +119,6 @@ where
 
                 non_collapsed
             })
-            .enumerate()
             .map(|(flat_index, wavetile)| {
                 let nd_index = Self::compute_nd_index(flat_index, strides);
 
@@ -124,9 +160,65 @@ where
         res
     }
 
+    /// Collapses the wave
+    pub fn collapse(&self, starting_index: Option<[usize; N]>) {
+        // scope this in order to avoid hanging
+        let max_entropy = {
+            let (_, wavetile) = self.max_entropy();
+            let wavetile = wavetile.read().expect("thread hung");
+            wavetile.entropy
+        };
+
+        // if the wave is fully collapsed
+        if max_entropy < 2 {
+            return;
+        };
+
+        // get starting index
+        let (index, wavetile) = match starting_index {
+            Some(index) => (index, &self.wave[index]),
+            None => self.min_entropy(),
+        };
+
+        // collapse the starting tile
+        {
+            let mut wavetile = wavetile.write().expect("thread hung");
+            wavetile.collapse();
+        }
+
+        self.propagate(&index);
+
+        // handle the rest of the wave
+        for _ in 0..100 {
+            let (_, wavetile) = self.max_entropy();
+            let max_entropy = {
+                let wavetile = wavetile.read().expect("thread hung");
+                wavetile.entropy
+            };
+
+            if max_entropy < 2 {
+                break;
+            };
+
+            let (index, wavetile) = self.min_entropy();
+            // println!("collapsing {:?}", index);
+            {
+                let mut wavetile = wavetile.write().expect("thread hung");
+                wavetile.collapse();
+            }
+
+            self.propagate(&index);
+        }
+    }
+
     /// Propagates the wave from an index `start`
-    /// TODO: start shouldn't be updated
+    /// TODO:
+    ///  - stop propagation if neighboring tiles haven't updated
+    ///  - currently, a wavetile looks at all of its neighbors, but it only needs to look at a
+    ///  subset of those: the ones closer to the center of the wave.
     pub fn propagate(&self, start: &[usize; N]) {
+        let t0 = SystemTime::now();
+
         let index_groups = self.get_index_groups(start);
 
         for index_group in index_groups.into_iter() {
@@ -169,7 +261,7 @@ where
                             let wavetile = lock.read().expect("thread hung");
 
                             let hashes = wavetile.hashes.get(axis_index).unwrap();
-                            let hashes = hashes.1.clone();
+                            let hashes = hashes.0.clone();
 
                             Some(hashes) // TODO: expensive
                         }
@@ -186,57 +278,9 @@ where
                 wavetile.update(wavetile_neighbors);
             });
         }
-    }
 
-    /// Collapses the wave
-    /// TODO: add starting index
-    pub fn collapse(&self, starting_index: Option<[usize; N]>) {
-        // scope this in order to avoid hanging
-        let max_entropy = {
-            let (_, wavetile) = self.max_entropy();
-            let wavetile = wavetile.read().expect("thread hung");
-            wavetile.entropy
-        };
-
-        // if the wave is fully collapsed
-        if max_entropy < 2 {
-            return;
-        };
-
-        // get starting index
-        let (index, wavetile) = match starting_index {
-            Some(index) => (index, &self.wave[index]),
-            None => self.min_entropy(),
-        };
-
-        // collapse the starting tile
-        {
-            let mut wavetile = wavetile.write().expect("thread hung");
-            wavetile.collapse();
-        }
-
-        self.propagate(&index);
-
-        // handle the rest of the wave
-        loop {
-            let (_, wavetile) = self.max_entropy();
-            let max_entropy = {
-                let wavetile = wavetile.read().expect("thread hung");
-                wavetile.entropy
-            };
-
-            if max_entropy < 2 {
-                break;
-            };
-
-            let (index, wavetile) = self.min_entropy();
-            {
-                let mut wavetile = wavetile.write().expect("thread hung");
-                wavetile.collapse();
-            }
-
-            self.propagate(&index);
-        }
+        let t1 = SystemTime::now();
+        // println!("propagate time {:?}", t1.duration_since(t0).unwrap());
     }
 
     /// TODO: doesn't really belong in wave..
@@ -337,34 +381,46 @@ where
 
         neighbors
     }
-
-    pub fn shape(&self) -> Dim<[usize; N]> {
-        self.wave.raw_dim()
-    }
 }
 
-pub fn from_image<'a>(
-    sample: &'a Sample<Pixel, 2>,
-    window_size: usize,
-    shape: Dim<[usize; 2]>,
-) -> Result<Wave<'a, Pixel, 2>, String> {
-    // perform sliding windows on our sample
-    let tiles = sample.window(window_size);
-
-    // create a wave of tiles of the appropriate shape from our sample image
-    Wave::new(tiles, shape)
-}
-
-pub fn from_sample<T, const N: usize>(sample: Sample<T, N>)
+pub fn from_smple<'a, T, const N: usize>(
+    sample: &'a Sample<T, N>,
+    shape: DimN<N>,
+) -> Result<MyWave<'a, T, N>, String>
 where
-    T: Hashable + std::fmt::Debug,
-    Dim<[usize; N]>: Dimension, // ensures that [usize; N] is a Dimension implemented by ndarray
-    [usize; N]: NdIndex<Dim<[usize; N]>>, // ensures that any [usize; N] is a valid index into the nd array
+    T: Hashable + Sync + Send + std::fmt::Debug,
+    Dim<[usize; N]>: Dimension,
+    [usize; N]: NdIndex<Dim<[usize; N]>>,
 
     // ensures that `D` is such that `SliceInfo` implements the `SliceArg` type of it.
     SliceInfo<Vec<SliceInfoElem>, Dim<[usize; N]>, <Dim<[usize; N]> as Dimension>::Smaller>:
         SliceArg<Dim<[usize; N]>>,
 {
+    let tiles = sample.tiles();
+
+    MyWave::new(tiles, shape)
+}
+
+pub fn from_sample<'a, T, const N: usize>(
+    sample: &'a Sample<T, N>,
+    shape: DimN<N>,
+) -> Result<Wave<'a, T, N>, String>
+where
+    T: Hashable + Sync + Send + std::fmt::Debug,
+    DimN<N>: Dimension,
+    [usize; N]: NdIndex<DimN<N>>,
+
+    // ensures that `D` is such that `SliceInfo` implements the `SliceArg` type of it.
+    SliceInfo<Vec<SliceInfoElem>, Dim<[usize; N]>, <Dim<[usize; N]> as Dimension>::Smaller>:
+        SliceArg<DimN<N>>,
+{
+    let tiles = sample.tiles(); // sample.window(window_size);
+
+    let n = tiles.len();
+    println!("{n} tiles");
+
+    // create a wave of tiles of the appropriate shape from our sample image
+    Wave::new(tiles, shape)
 }
 
 impl<'a> Wave<'a, Pixel, 2> {
