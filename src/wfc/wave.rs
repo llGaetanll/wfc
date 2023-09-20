@@ -189,7 +189,7 @@ where
         self.propagate(&index);
 
         // handle the rest of the wave
-        for _ in 0..100 {
+        loop {
             let (_, wavetile) = self.max_entropy();
             let max_entropy = {
                 let wavetile = wavetile.read().expect("thread hung");

@@ -2,6 +2,7 @@ use ndarray::Ix2;
 use regex::Regex;
 use std::env;
 use std::path::Path;
+use std::time::SystemTime;
 use wfc::sample;
 
 mod wfc;
@@ -29,7 +30,12 @@ fn main() -> Result<(), String> {
     let sample = sample::from_image(&img_path, window_size, false, true)?;
     let wave = crate::wfc::wave::from_sample(&sample, Ix2(width, height))?;
 
+    let t0 = SystemTime::now();
     wave.collapse(None);
+    let t1 = SystemTime::now();
+
+    println!("Collapse took {:?}", t1.duration_since(t0).unwrap());
+
     wave.show(&sdl_context)?;
 
     Ok(())
