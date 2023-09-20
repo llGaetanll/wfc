@@ -28,7 +28,7 @@ fn main() -> Result<(), String> {
     let sdl_context = sdl2::init()?;
 
     let sample = sample::from_image(&img_path, window_size, false, true)?;
-    let wave = crate::wfc::wave::from_sample(&sample, Ix2(width, height))?;
+    let mut wave = crate::wfc::wave::from_sample(&sample, Ix2(width, height))?;
 
     let t0 = SystemTime::now();
     wave.collapse(None);

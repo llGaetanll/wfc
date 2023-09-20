@@ -145,13 +145,15 @@ where
     }
 
     /// Update the `possible_tiles` of the current `WaveTile` given a list of neighbors.
+    ///
+    /// returns whether the wavetile has changed
     pub fn update(
         &mut self,
         neighbor_hashes: [(Option<HashSet<BoundaryHash>>, Option<HashSet<BoundaryHash>>); N],
-    ) {
+    ) -> bool {
         // no need to update if the wavetile is collapsed
         if self.entropy < 2 {
-            return;
+            return false;
         }
 
         let mut possible_hashes: [(HashSet<BoundaryHash>, HashSet<BoundaryHash>); N] =
@@ -240,7 +242,11 @@ where
         self.hashes = Self::derive_hashes(&self.possible_tiles);
 
         // 4. Update the entropy
-        self.entropy = Self::compute_entropy(&self.possible_tiles);
+        let new_entropy = Self::compute_entropy(&self.possible_tiles);
+        let changed = self.entropy == new_entropy;
+        self.entropy = new_entropy;
+
+        changed
     }
 }
 

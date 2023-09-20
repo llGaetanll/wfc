@@ -6,7 +6,7 @@ use std::fmt::Debug;
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::mpsc::Receiver;
-use std::sync::{mpsc, Arc, RwLock};
+use std::sync::{mpsc, Arc, Mutex, RwLock};
 use std::thread;
 use std::time::SystemTime;
 
@@ -44,42 +44,11 @@ where
         SliceArg<Dim<[usize; N]>>,
 {
     pub wave: ArcArray<RwLock<WaveTile<'a, T, N>>, Dim<[usize; N]>>,
-}
 
-pub struct MyWave<'a, T, const N: usize>
-where
-    T: Hashable + Sync + std::fmt::Debug,
-    Dim<[usize; N]>: Dimension, // ensures that [usize; N] is a Dimension implemented by ndarray
-    [usize; N]: NdIndex<Dim<[usize; N]>>, // ensures that any [usize; N] is a valid index into the nd array
+    // used to quickly compute diffs on wavetiles that have changed
+    diffs: ArcArray<RwLock<bool>, DimN<N>>,
 
-    // ensures that `D` is such that `SliceInfo` implements the `SliceArg` type of it.
-    SliceInfo<Vec<SliceInfoElem>, Dim<[usize; N]>, <Dim<[usize; N]> as Dimension>::Smaller>:
-        SliceArg<Dim<[usize; N]>>,
-{
-    wave: ArcArray<RwLock<WaveTile<'a, T, N>>, Dim<[usize; N]>>,
-}
-
-impl<'a, T, const N: usize> MyWave<'a, T, N>
-where
-    T: Hashable + Sync + Send + std::fmt::Debug,
-    Dim<[usize; N]>: Dimension,
-    [usize; N]: NdIndex<Dim<[usize; N]>>,
-
-    // ensures that `D` is such that `SliceInfo` implements the `SliceArg` type of it.
-    SliceInfo<Vec<SliceInfoElem>, Dim<[usize; N]>, <Dim<[usize; N]> as Dimension>::Smaller>:
-        SliceArg<Dim<[usize; N]>>,
-{
-    fn new(tiles: Vec<Tile<'a, T, N>>, shape: Dim<[usize; N]>) -> Result<Self, String> {
-        let tiles = tiles
-            .into_iter()
-            .map(|tile| Arc::new(tile))
-            .collect::<Vec<_>>();
-
-        // tiles are reference counted
-        let wave = ArcArray::from_shape_fn(shape, |_| RwLock::new(WaveTile::new(&tiles)));
-
-        Ok(MyWave { wave })
-    }
+    shape: DimN<N>,
 }
 
 impl<'a, T, const N: usize> Wave<'a, T, N>
@@ -92,7 +61,7 @@ where
     SliceInfo<Vec<SliceInfoElem>, Dim<[usize; N]>, <Dim<[usize; N]> as Dimension>::Smaller>:
         SliceArg<Dim<[usize; N]>>,
 {
-    fn new(tiles: Vec<Tile<'a, T, N>>, shape: Dim<[usize; N]>) -> Result<Self, String> {
+    fn new(tiles: Vec<Tile<'a, T, N>>, shape: DimN<N>) -> Result<Self, String> {
         // tiles are reference counted
         let tiles = tiles
             .into_iter()
@@ -100,8 +69,9 @@ where
             .collect::<Vec<_>>();
 
         let wave = ArcArray::from_shape_fn(shape, |_| RwLock::new(WaveTile::new(&tiles)));
+        let diffs = ArcArray::from_shape_fn(shape, |_| RwLock::new(false));
 
-        Ok(Wave { wave })
+        Ok(Wave { wave, diffs, shape })
     }
 
     fn min_entropy(&self) -> ([usize; N], &RwLock<WaveTile<'a, T, N>>) {
@@ -161,7 +131,7 @@ where
     }
 
     /// Collapses the wave
-    pub fn collapse(&self, starting_index: Option<[usize; N]>) {
+    pub fn collapse(&mut self, starting_index: Option<[usize; N]>) {
         // scope this in order to avoid hanging
         let max_entropy = {
             let (_, wavetile) = self.max_entropy();
@@ -182,17 +152,28 @@ where
 
         // collapse the starting tile
         {
-            let mut wavetile = wavetile.write().expect("thread hung");
+            let mut wavetile = wavetile
+                .write()
+                .expect("thread hung upon wavetile write attempt");
+
             wavetile.collapse();
+
+            let mut diff = self.diffs[index].write().unwrap();
+            *diff = true;
         }
 
         self.propagate(&index);
 
         // handle the rest of the wave
         loop {
+            // reset diffs
+            self.diffs = ArcArray::from_shape_fn(self.shape, |_| RwLock::new(false));
+
             let (_, wavetile) = self.max_entropy();
             let max_entropy = {
-                let wavetile = wavetile.read().expect("thread hung");
+                let wavetile = wavetile
+                    .read()
+                    .expect("thread hung upon wavetile read attempt");
                 wavetile.entropy
             };
 
@@ -201,10 +182,17 @@ where
             };
 
             let (index, wavetile) = self.min_entropy();
-            // println!("collapsing {:?}", index);
             {
-                let mut wavetile = wavetile.write().expect("thread hung");
+                let mut wavetile = wavetile
+                    .write()
+                    .expect("thread hung upon wavetile write attempt");
+
                 wavetile.collapse();
+
+                let mut diff = self.diffs[index]
+                    .write()
+                    .expect("thread hung upon diff write attempt");
+                *diff = true;
             }
 
             self.propagate(&index);
@@ -217,11 +205,16 @@ where
     ///  - currently, a wavetile looks at all of its neighbors, but it only needs to look at a
     ///  subset of those: the ones closer to the center of the wave.
     pub fn propagate(&self, start: &[usize; N]) {
+        let t0 = SystemTime::now();
+        let mut total_skips = Arc::new(Mutex::new(0));
+
         let index_groups = self.get_index_groups(start);
 
         for index_group in index_groups.into_iter() {
             // all tiles in an index group can be performed at the same time
             index_group.par_iter().for_each(|&index| {
+                let total_skips = total_skips.clone();
+
                 // note that if a `WaveTile` is on the edge of the wave, it might not have all its
                 // neighbors. This also depends on the wrapping logic chosen
                 let neighbors = self.compute_neighbors(&index);
@@ -230,52 +223,102 @@ where
                     Option<HashSet<BoundaryHash>>,
                 ); N] = vec![(None, None); N].try_into().unwrap();
 
+                let mut num_skips = 0;
+
                 // from the neighbor indices, we construct a list of the neighbors hashes
                 for (axis_index, index_pair) in neighbors.into_iter().enumerate() {
-                    let mut wavetile_pair: (
-                        Option<HashSet<BoundaryHash>>,
-                        Option<HashSet<BoundaryHash>>,
-                    ) = (None, None);
+                    // NOTE: the right hashset comes from the left tile because of how we compare
+                    // borders
+                    let (left_index, right_index) = index_pair;
 
-                    let (left, right) = index_pair;
-
-                    wavetile_pair.0 = match left {
+                    let right_hashset = match left_index {
                         Some(neighbor_index) => {
-                            let lock = self.wave.get(neighbor_index).unwrap();
-                            let wavetile = lock.read().expect("thread hung");
+                            let diff = self.diffs[neighbor_index]
+                                .read()
+                                .expect("thread hung while attempting to read diff");
 
-                            let hashes = wavetile.hashes.get(axis_index).unwrap();
-                            let hashes = hashes.1.clone();
+                            // check if the neighbor has changed
+                            match *diff {
+                                true => {
+                                    let wavetile = self.wave[neighbor_index]
+                                        .read()
+                                        .expect("thread hung while attempting to read wavetile");
 
-                            // NOTE: return right hashes for left wavetile because this is a neighbor
-                            Some(hashes)
+                                    let hashes = wavetile.hashes.get(axis_index).unwrap();
+                                    let hashes = hashes.1.clone();
+
+                                    Some(hashes)
+                                }
+                                false => {
+                                    num_skips += 1;
+                                    None
+                                }
+                            }
                         }
-                        None => None,
+                        None => {
+                            num_skips += 1;
+
+                            None
+                        }
                     };
 
-                    wavetile_pair.1 = match right {
+                    let left_hashset = match right_index {
                         Some(neighbor_index) => {
-                            let lock = self.wave.get(neighbor_index).unwrap();
-                            let wavetile = lock.read().expect("thread hung");
+                            let diff = self.diffs[neighbor_index]
+                                .read()
+                                .expect("thread hung while attempting to read diff");
 
-                            let hashes = wavetile.hashes.get(axis_index).unwrap();
-                            let hashes = hashes.0.clone();
+                            match *diff {
+                                true => {
+                                    let wavetile = self.wave[neighbor_index]
+                                        .read()
+                                        .expect("thread hung while attempting to read wavetile");
 
-                            Some(hashes) // TODO: expensive
+                                    let hashes = wavetile.hashes.get(axis_index).unwrap();
+                                    let hashes = hashes.0.clone();
+
+                                    Some(hashes)
+                                }
+                                false => {
+                                    num_skips += 1;
+                                    None
+                                }
+                            }
                         }
-                        None => None,
+                        None => {
+                            num_skips += 1;
+                            None
+                        }
                     };
 
-                    wavetile_neighbors[axis_index] = wavetile_pair;
+                    wavetile_neighbors[axis_index] = (right_hashset, left_hashset);
                 }
+
+                let mut total_skips = total_skips.lock().unwrap();
+                *total_skips += num_skips;
 
                 // TODO: catch if a wavetile has no more options at this stage instead of on
                 // collapse?
                 let lock = &self.wave[index];
                 let mut wavetile = lock.write().expect("thread hung");
-                wavetile.update(wavetile_neighbors);
+                let wavetile_changed = wavetile.update(wavetile_neighbors);
+
+                // if statement so that we don't read unless we have to
+                if wavetile_changed {
+                    let mut diff = self.diffs[index].write().expect("thread hung");
+                    *diff = true;
+                }
             });
         }
+
+        let t1 = SystemTime::now();
+        let total_skips = total_skips.lock().unwrap();
+
+        println!(
+            "Propagate in {:?}. Total skips: {}",
+            t1.duration_since(t0).unwrap(),
+            *total_skips
+        );
     }
 
     /// TODO: doesn't really belong in wave..
@@ -376,24 +419,6 @@ where
 
         neighbors
     }
-}
-
-pub fn from_smple<'a, T, const N: usize>(
-    sample: &'a Sample<T, N>,
-    shape: DimN<N>,
-) -> Result<MyWave<'a, T, N>, String>
-where
-    T: Hashable + Sync + Send + std::fmt::Debug,
-    Dim<[usize; N]>: Dimension,
-    [usize; N]: NdIndex<Dim<[usize; N]>>,
-
-    // ensures that `D` is such that `SliceInfo` implements the `SliceArg` type of it.
-    SliceInfo<Vec<SliceInfoElem>, Dim<[usize; N]>, <Dim<[usize; N]> as Dimension>::Smaller>:
-        SliceArg<Dim<[usize; N]>>,
-{
-    let tiles = sample.tiles();
-
-    MyWave::new(tiles, shape)
 }
 
 pub fn from_sample<'a, T, const N: usize>(
