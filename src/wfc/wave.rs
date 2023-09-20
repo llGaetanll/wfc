@@ -217,8 +217,6 @@ where
     ///  - currently, a wavetile looks at all of its neighbors, but it only needs to look at a
     ///  subset of those: the ones closer to the center of the wave.
     pub fn propagate(&self, start: &[usize; N]) {
-        let t0 = SystemTime::now();
-
         let index_groups = self.get_index_groups(start);
 
         for index_group in index_groups.into_iter() {
@@ -278,9 +276,6 @@ where
                 wavetile.update(wavetile_neighbors);
             });
         }
-
-        let t1 = SystemTime::now();
-        // println!("propagate time {:?}", t1.duration_since(t0).unwrap());
     }
 
     /// TODO: doesn't really belong in wave..

@@ -36,12 +36,11 @@ where
         SliceArg<Dim<[usize; N]>>,
 {
     /// The list of possible tiles that the WaveTile can be
-    ///
-    /// For each tile, we store a unsigned integer which is initialized as 0. If
-    /// a tile is no longer possible, this number is incremented to 1. In every
-    /// subsequent pass, if a number i > 0, it is again incremented. this allows
-    /// us to reverse the operation.
-    possible_tiles: Vec<(Arc<Tile<'a, T, N>>, usize)>,
+    possible_tiles: Vec<Arc<Tile<'a, T, N>>>,
+
+    /// A list `A` of lists of filtered `Tile`s where `A[i]` is all `Tiles` filtered out on
+    /// iteration `i`
+    filtered_tiles: Vec<Vec<Arc<Tile<'a, T, N>>>>,
 
     /// list of memoized hashes derived from `possible_tiles`
     /// TODO: might not need to be public
@@ -75,40 +74,35 @@ where
 
         let tiles = tiles
             .iter()
-            .map(|tile| (Arc::clone(tile), 0))
-            .collect::<Vec<(Arc<Tile<T, N>>, usize)>>();
+            .map(|tile| Arc::clone(tile))
+            .collect::<Vec<Arc<Tile<T, N>>>>();
 
         let hashes = Self::derive_hashes(&tiles);
         let entropy = Self::compute_entropy(&tiles);
 
         WaveTile {
             possible_tiles: tiles,
+            filtered_tiles: Vec::new(),
             hashes,
             entropy,
             shape,
         }
     }
 
-    fn compute_entropy(tiles: &Vec<(Arc<Tile<'a, T, N>>, usize)>) -> usize {
-        tiles.iter().filter(|(_, n)| *n == 0).count()
+    fn compute_entropy(tiles: &Vec<Arc<Tile<'a, T, N>>>) -> usize {
+        tiles.len()
     }
 
     /// Given a list of `tile`s that this WaveTile can be, this precomputes the list of valid
     /// hashes for each of its borders. This is used to speed up the wave propagation algorithm.
     fn derive_hashes(
-        tiles: &Vec<(Arc<Tile<'a, T, N>>, usize)>,
+        tiles: &Vec<Arc<Tile<'a, T, N>>>,
     ) -> [(HashSet<BoundaryHash>, HashSet<BoundaryHash>); N] {
-        let possible_tiles: Vec<&Arc<Tile<'a, T, N>>> = tiles
-            .into_iter()
-            .filter(|(_, i)| *i == 0)
-            .map(|(tile, _)| tile)
-            .collect();
-
         let mut hashes: Vec<(HashSet<BoundaryHash>, HashSet<BoundaryHash>)> =
             vec![(HashSet::new(), HashSet::new()); N];
 
         // TODO: probably painfully slow?
-        for tile in possible_tiles.iter() {
+        for tile in tiles.iter() {
             for (j, axis_hash) in tile.hashes.iter().enumerate() {
                 let (h1, h2) = axis_hash;
                 let (hs1, hs2) = &mut hashes[j];
@@ -126,38 +120,28 @@ where
     pub fn collapse(&mut self) -> Option<()> {
         let mut rng = rand::thread_rng();
 
-        let available_indices: Vec<usize> = self
+        if self.entropy < 1 {
+            return None;
+        }
+
+        let idx = rng.gen_range(0..self.entropy);
+
+        let valid_tile = self.possible_tiles.get(idx).unwrap().to_owned();
+        let invalid_tiles = self
             .possible_tiles
-            .iter()
+            .drain(..)
             .enumerate()
-            .filter(|(_, (_, n))| *n == 0)
-            .map(|(i, _)| i)
+            .filter(|&(i, _)| i != idx)
+            .map(|(_, tile)| tile)
             .collect();
 
-        match available_indices.choose(&mut rng) {
-            Some(&rand_idx) => {
-                // collapse the tile list to a single tile
-                self.possible_tiles
-                    .iter_mut()
-                    .enumerate()
-                    .filter(|(i, _)| *i != rand_idx)
-                    .for_each(|(_, &mut (_, ref mut count))| *count += 1);
+        self.possible_tiles = vec![valid_tile];
+        self.filtered_tiles.push(invalid_tiles);
 
-                // update the hashes for the current tile
-                // TODO: code kinda gross
-                // TODO: it would be nice if the hashes were updated automatically whenever the
-                // possible_tiles are changed.
-                self.hashes = Self::derive_hashes(&self.possible_tiles);
+        self.hashes = Self::derive_hashes(&self.possible_tiles);
+        self.entropy = 1;
 
-                self.entropy = 1;
-
-                Some(())
-            }
-            None => {
-                println!("No more options!");
-                None
-            }
-        }
+        Some(())
     }
 
     /// Update the `possible_tiles` of the current `WaveTile` given a list of neighbors.
@@ -229,26 +213,28 @@ where
 
         // 2. for each tile, iterate over each axis, if any of its hashes are NOT in the
         //    possible_hashes, filter out the tile.
-        for (tile, count) in self.possible_tiles.iter_mut() {
-            if *count > 0 {
-                *count += 1;
-            }
+        let (invalid_tiles, valid_tiles): (Vec<_>, Vec<_>) = self
+            .possible_tiles
+            .drain(..) // allows us to effectively take ownership of the vector
+            .partition(|tile| {
+                let mut invalid = false;
+                for (axis_index, axis_hashes) in tile.hashes.iter().enumerate() {
+                    let (wavetile_left, wavetile_right) = &possible_hashes[axis_index];
+                    let (tile_left, tile_right) = axis_hashes;
 
-            let mut invalid = false;
-            for (axis_index, axis_hashes) in tile.hashes.iter().enumerate() {
-                let (wavetile_left, wavetile_right) = &possible_hashes[axis_index];
-                let (tile_left, tile_right) = axis_hashes;
-
-                if (!wavetile_left.contains(tile_left)) || (!wavetile_right.contains(tile_right)) {
-                    invalid = true;
-                    break;
+                    if (!wavetile_left.contains(tile_left))
+                        || (!wavetile_right.contains(tile_right))
+                    {
+                        invalid = true;
+                        break;
+                    }
                 }
-            }
 
-            if invalid {
-                *count += 1;
-            }
-        }
+                invalid
+            });
+
+        self.possible_tiles = valid_tiles;
+        self.filtered_tiles.push(invalid_tiles);
 
         // 3. Update the hashes
         self.hashes = Self::derive_hashes(&self.possible_tiles);
@@ -265,7 +251,7 @@ impl<'a> Pixelizable for WaveTile<'a, Pixel, 2> {
         // the tile be the same size.
         let size = self.shape;
 
-        let valid_tiles = self.possible_tiles.iter().filter(|(_, n)| *n == 0);
+        let valid_tiles = self.possible_tiles.iter();
         let num_tiles = valid_tiles.clone().count();
 
         let wavetile_pixels = Array2::from_shape_vec(
@@ -276,7 +262,7 @@ impl<'a> Pixelizable for WaveTile<'a, Pixel, 2> {
                         let acc: Vec<[f64; 3]> = vec![[0., 0., 0.]; size * size];
                         acc
                     },
-                    |acc, (tile, _)| {
+                    |acc, tile| {
                         acc.iter()
                             .zip(tile.pixels().into_iter())
                             .map(|(acc_px, tile_px)| {
