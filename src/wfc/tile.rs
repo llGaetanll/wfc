@@ -1,4 +1,3 @@
-use ndarray::{Array, ArrayBase, OwnedRepr, RawData, ViewRepr};
 use ndarray::{Array2, ArrayView, Dim, Dimension, SliceArg, SliceInfo, SliceInfoElem};
 use sdl2::event::Event;
 use sdl2::image::InitFlag;

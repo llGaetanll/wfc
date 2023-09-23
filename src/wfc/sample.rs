@@ -27,7 +27,7 @@ use super::types::Pixel;
 /// `N` is the dimension of the Sample, `T` is the type of each element
 ///
 /// Samples contain a list of tiles
-pub struct Sample<T, const N: usize>(Vec<Array<T, DimN<N>>>)
+pub struct Sample<T, const N: usize>(pub Vec<Array<T, DimN<N>>>)
 where
     T: Hashable,
     DimN<N>: Dimension;

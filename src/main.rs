@@ -5,6 +5,8 @@ use std::path::Path;
 use std::time::SystemTime;
 use wfc::sample;
 
+use crate::wfc::tile::Tile;
+
 mod wfc;
 
 fn main() -> Result<(), String> {
@@ -28,7 +30,12 @@ fn main() -> Result<(), String> {
     let sdl_context = sdl2::init()?;
 
     let sample = sample::from_image(&img_path, window_size, false, true)?;
-    let mut wave = crate::wfc::wave::from_sample(&sample, Ix2(width, height))?;
+
+    // THIS NEEDS TO BE DONE AT THE SAME SCOPE SO THAT THE LIFETIMES ARE THE SAME
+    let tiles = sample.tiles();
+    let tile_refs: Vec<_> = tiles.iter().map(|tile| tile).collect();
+
+    let mut wave = crate::wfc::wave::from_tiles(tile_refs, Ix2(width, height))?;
 
     let t0 = SystemTime::now();
     wave.collapse(None);

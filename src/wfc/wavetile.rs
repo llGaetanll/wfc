@@ -1,14 +1,11 @@
-use std::borrow::Borrow;
+use std::collections::HashSet;
 use std::fmt::Debug;
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
-use std::sync::RwLock;
-use std::time::SystemTime;
-use std::{cell::RefCell, collections::HashSet, rc::Rc};
 
-use ndarray::{Array2, Dim, Dimension, Ix2, NdIndex, SliceArg, SliceInfo, SliceInfoElem};
+use ndarray::{Array2, Dim, Dimension, NdIndex, SliceArg, SliceInfo, SliceInfoElem};
 
-use rand::seq::SliceRandom;
+use rand::prelude::*;
 use rand::Rng;
 
 use sdl2::event::Event;
@@ -20,6 +17,7 @@ use sdl2::render::{Texture, TextureCreator};
 use sdl2::surface::Surface;
 use sdl2::video::WindowContext;
 
+use super::sample::Sample;
 use super::tile::Tile;
 use super::traits::{Hashable, Pixelizable, SdlTexturable};
 use super::types::{BoundaryHash, Pixel};
@@ -35,12 +33,8 @@ where
     SliceInfo<Vec<SliceInfoElem>, Dim<[usize; N]>, <Dim<[usize; N]> as Dimension>::Smaller>:
         SliceArg<Dim<[usize; N]>>,
 {
-    /// The list of possible tiles that the WaveTile can be
-    possible_tiles: Vec<Arc<Tile<'a, T, N>>>,
-
-    /// A list `A` of lists of filtered `Tile`s where `A[i]` is all `Tiles` filtered out on
-    /// iteration `i`
-    filtered_tiles: Vec<Vec<Arc<Tile<'a, T, N>>>>,
+    possible_tiles: Vec<&'a Tile<'a, T, N>>,
+    filtered_tiles: Vec<Vec<&'a Tile<'a, T, N>>>,
 
     /// list of memoized hashes derived from `possible_tiles`
     /// TODO: might not need to be public
@@ -48,9 +42,7 @@ where
 
     /// computed as the number of valid tiles
     pub entropy: usize,
-
-    /// The shape of the WaveTile
-    shape: usize,
+    pub shape: usize,
 }
 
 impl<'a, T, const N: usize> WaveTile<'a, T, N>
@@ -64,21 +56,13 @@ where
 {
     /***
      * Create a new WaveTile from a list of tiles
+     * TODO: assert that all tiles are the same shape
      */
-    pub fn new(tiles: &Vec<Arc<Tile<'a, T, N>>>) -> Self {
-        // the shape of the wavetile is defined by the shape of the first tile
-        // if the remaining tiles are not of the same shape, we return an error
-        let shape = tiles.get(0).unwrap().shape();
-
-        // TODO: assert that all tiles are the same shape
-
-        let tiles = tiles
-            .iter()
-            .map(|tile| Arc::clone(tile))
-            .collect::<Vec<Arc<Tile<T, N>>>>();
-
+    pub fn new(tiles: Vec<&'a Tile<'a, T, N>>) -> Self {
         let hashes = Self::derive_hashes(&tiles);
-        let entropy = Self::compute_entropy(&tiles);
+        let entropy = tiles.len();
+
+        let shape = tiles[0].shape();
 
         WaveTile {
             possible_tiles: tiles,
@@ -89,41 +73,36 @@ where
         }
     }
 
-    fn compute_entropy(tiles: &Vec<Arc<Tile<'a, T, N>>>) -> usize {
-        tiles.len()
-    }
-
     /// Given a list of `tile`s that this WaveTile can be, this precomputes the list of valid
     /// hashes for each of its borders. This is used to speed up the wave propagation algorithm.
     fn derive_hashes(
-        tiles: &Vec<Arc<Tile<'a, T, N>>>,
+        tiles: &Vec<&'a Tile<'a, T, N>>,
     ) -> [(HashSet<BoundaryHash>, HashSet<BoundaryHash>); N] {
-        let mut hashes: Vec<(HashSet<BoundaryHash>, HashSet<BoundaryHash>)> =
-            vec![(HashSet::new(), HashSet::new()); N];
+        let mut hashes: [(HashSet<BoundaryHash>, HashSet<BoundaryHash>); N] =
+            vec![(HashSet::new(), HashSet::new()); N]
+                .try_into()
+                .unwrap();
 
-        // TODO: probably painfully slow?
         for tile in tiles.iter() {
             for (j, axis_hash) in tile.hashes.iter().enumerate() {
-                let (h1, h2) = axis_hash;
+                let (h1, h2) = axis_hash.clone();
                 let (hs1, hs2) = &mut hashes[j];
 
-                // NOTE: cloning a u64 is fast, but maybe we don't need to
-                hs1.insert(h1.clone());
-                hs2.insert(h2.clone());
+                hs1.insert(h1);
+                hs2.insert(h2);
             }
         }
 
-        hashes.try_into().unwrap()
+        hashes
     }
 
     /// Collapses a `WaveTile` to one of its possible tiles, at random.
     pub fn collapse(&mut self) -> Option<()> {
-        let mut rng = rand::thread_rng();
-
         if self.entropy < 1 {
             return None;
         }
 
+        let mut rng = rand::thread_rng();
         let idx = rng.gen_range(0..self.entropy);
 
         let valid_tile = self.possible_tiles.get(idx).unwrap().to_owned();
@@ -131,8 +110,7 @@ where
             .possible_tiles
             .drain(..)
             .enumerate()
-            .filter(|&(i, _)| i != idx)
-            .map(|(_, tile)| tile)
+            .filter_map(|(i, tile)| if i != idx { Some(tile) } else { None })
             .collect();
 
         self.possible_tiles = vec![valid_tile];
@@ -151,102 +129,78 @@ where
         &mut self,
         neighbor_hashes: [(Option<HashSet<BoundaryHash>>, Option<HashSet<BoundaryHash>>); N],
     ) -> bool {
-        // no need to update if the wavetile is collapsed
+        let same_neighbors = neighbor_hashes
+            .iter()
+            .all(|(left, right)| left.is_none() && right.is_none());
+
         if self.entropy < 2 {
-            return false;
+            return true;
         }
 
-        let mut possible_hashes: [(HashSet<BoundaryHash>, HashSet<BoundaryHash>); N] =
+        if same_neighbors {
+            return true;
+        }
+
+        let hashes: [(HashSet<BoundaryHash>, HashSet<BoundaryHash>); N] =
             vec![(HashSet::new(), HashSet::new()); N]
                 .try_into()
                 .unwrap();
 
-        // 1. compute possible hashes of the wavetile for each axis
-        for (axis_index, axis_hash_pair) in neighbor_hashes.into_iter().enumerate() {
-            // TODO: zip instead
-            let (self_left_hash, self_right_hash): &(HashSet<BoundaryHash>, HashSet<BoundaryHash>) =
-                &self.hashes.get(axis_index).unwrap();
+        // owned copy of the self.hashes
+        let hashes = std::mem::replace(&mut self.hashes, hashes);
 
-            // NOTE: PURPOSEFULLY REVERSED.
-            //
-            // This is because the wall that connects us to our LEFT neighbor is ITS RIGHT wall.
-            let (neighbor_right_hashes, neighbor_left_hashes) = axis_hash_pair;
+        let new_hashes: [(HashSet<BoundaryHash>, HashSet<BoundaryHash>); N] = hashes
+            .into_iter()
+            .zip(neighbor_hashes.into_iter())
+            .map(
+                |((wavetile_left, wavetile_right), (neighbor_right, neighbor_left))| {
+                    let left = match neighbor_right {
+                        Some(hashes) => wavetile_left
+                            .intersection(&hashes)
+                            .map(|hash| hash.to_owned())
+                            .collect::<HashSet<BoundaryHash>>(),
+                        None => wavetile_left,
+                    };
 
-            // TODO: use references?
-            let mut valid_hashes: (HashSet<BoundaryHash>, HashSet<BoundaryHash>) =
-                (HashSet::default(), HashSet::default());
+                    let right = match neighbor_left {
+                        Some(hashes) => wavetile_right
+                            .intersection(&hashes)
+                            .map(|hash| hash.to_owned())
+                            .collect::<HashSet<BoundaryHash>>(),
+                        None => wavetile_right,
+                    };
 
-            valid_hashes.0 = match neighbor_right_hashes {
-                Some(neighbor_right_hashes) => {
-                    // TODO: temp fix until backtracking works
-                    if neighbor_right_hashes.is_empty() {
-                        self_left_hash.clone()
-                    } else {
-                        let intersection = self_left_hash
-                            .intersection(&neighbor_right_hashes)
-                            .map(|h| h.clone())
-                            .collect::<HashSet<BoundaryHash>>();
-
-                        intersection
-                    }
-                }
-                None => self_left_hash.clone(), // TODO: expensive?
-            };
-
-            valid_hashes.1 = match neighbor_left_hashes {
-                Some(neighbor_left_hashes) => {
-                    // TODO: temp fix until backtracking works
-                    if neighbor_left_hashes.is_empty() {
-                        self_right_hash.clone()
-                    } else {
-                        let intersection = self_right_hash
-                            .intersection(&neighbor_left_hashes)
-                            .map(|h| h.clone())
-                            .collect::<HashSet<BoundaryHash>>();
-
-                        intersection
-                    }
-                }
-                None => self_right_hash.clone(), // TODO: expensive?
-            };
-
-            possible_hashes[axis_index] = valid_hashes;
-        }
+                    (left, right)
+                },
+            )
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
 
         // 2. for each tile, iterate over each axis, if any of its hashes are NOT in the
         //    possible_hashes, filter out the tile.
-        let (invalid_tiles, valid_tiles): (Vec<_>, Vec<_>) = self
+        let (valid_tiles, invalid_tiles): (Vec<_>, Vec<_>) = self
             .possible_tiles
             .drain(..) // allows us to effectively take ownership of the vector
-            .partition(|tile| {
-                let mut invalid = false;
-                for (axis_index, axis_hashes) in tile.hashes.iter().enumerate() {
-                    let (wavetile_left, wavetile_right) = &possible_hashes[axis_index];
-                    let (tile_left, tile_right) = axis_hashes;
-
-                    if (!wavetile_left.contains(tile_left))
-                        || (!wavetile_right.contains(tile_right))
-                    {
-                        invalid = true;
-                        break;
-                    }
-                }
-
-                invalid
+            .partition(|&tile| {
+                tile.hashes.iter().zip(new_hashes.iter()).all(
+                    |((tile_left, tile_right), (wavetile_left, wavetile_right))| {
+                        wavetile_left.contains(tile_left) && wavetile_right.contains(tile_right)
+                    },
+                )
             });
 
+        let old_entropy = self.entropy;
+        let new_entropy = valid_tiles.len();
+
+        self.entropy = new_entropy;
+        self.hashes = Self::derive_hashes(&valid_tiles);
         self.possible_tiles = valid_tiles;
         self.filtered_tiles.push(invalid_tiles);
 
-        // 3. Update the hashes
-        self.hashes = Self::derive_hashes(&self.possible_tiles);
+        old_entropy != new_entropy;
 
-        // 4. Update the entropy
-        let new_entropy = Self::compute_entropy(&self.possible_tiles);
-        let changed = self.entropy == new_entropy;
-        self.entropy = new_entropy;
-
-        changed
+        true
     }
 }
 

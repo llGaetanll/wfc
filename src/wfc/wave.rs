@@ -24,8 +24,8 @@ use crate::wfc::types::BoundaryHash;
 
 use super::sample::{self, Sample};
 use super::tile::{DimN, Tile};
-use super::traits::Hashable;
 use super::traits::SdlTexturable;
+use super::traits::{Hashable, Pixelizable};
 use super::types::Pixel;
 use super::wavetile::WaveTile;
 
@@ -43,10 +43,10 @@ where
     SliceInfo<Vec<SliceInfoElem>, Dim<[usize; N]>, <Dim<[usize; N]> as Dimension>::Smaller>:
         SliceArg<Dim<[usize; N]>>,
 {
-    pub wave: ArcArray<RwLock<WaveTile<'a, T, N>>, Dim<[usize; N]>>,
+    pub wave: Array<WaveTile<'a, T, N>, Dim<[usize; N]>>,
 
     // used to quickly compute diffs on wavetiles that have changed
-    diffs: ArcArray<RwLock<bool>, DimN<N>>,
+    diffs: Array<bool, DimN<N>>,
 
     shape: DimN<N>,
 }
@@ -61,20 +61,14 @@ where
     SliceInfo<Vec<SliceInfoElem>, Dim<[usize; N]>, <Dim<[usize; N]> as Dimension>::Smaller>:
         SliceArg<Dim<[usize; N]>>,
 {
-    fn new(tiles: Vec<Tile<'a, T, N>>, shape: DimN<N>) -> Result<Self, String> {
-        // tiles are reference counted
-        let tiles = tiles
-            .into_iter()
-            .map(|tile| Arc::new(tile))
-            .collect::<Vec<_>>();
-
-        let wave = ArcArray::from_shape_fn(shape, |_| RwLock::new(WaveTile::new(&tiles)));
-        let diffs = ArcArray::from_shape_fn(shape, |_| RwLock::new(false));
+    fn new(shape: DimN<N>, tiles: Vec<&'a Tile<'a, T, N>>) -> Result<Self, String> {
+        let wave = Array::from_shape_fn(shape, |_| WaveTile::new(tiles.clone()));
+        let diffs = Array::from_shape_fn(shape, |_| false);
 
         Ok(Wave { wave, diffs, shape })
     }
 
-    fn min_entropy(&self) -> ([usize; N], &RwLock<WaveTile<'a, T, N>>) {
+    fn min_entropy(&self) -> ([usize; N], &WaveTile<'a, T, N>) {
         let strides = self.wave.strides();
 
         let res = self
@@ -82,8 +76,6 @@ where
             .iter()
             .enumerate()
             .filter(|&(_, wavetile)| {
-                let wavetile = wavetile.read().expect("thread hung");
-
                 // want non-collapsed tiles
                 let non_collapsed = wavetile.entropy > 1;
 
@@ -95,8 +87,6 @@ where
                 (nd_index, wavetile)
             })
             .min_by_key(|&(_, wavetile)| {
-                let wavetile = wavetile.read().expect("thread hung");
-
                 let entropy = wavetile.entropy;
 
                 entropy
@@ -106,7 +96,7 @@ where
         res
     }
 
-    fn max_entropy(&self) -> ([usize; N], &RwLock<WaveTile<'a, T, N>>) {
+    fn max_entropy(&self) -> ([usize; N], &WaveTile<'a, T, N>) {
         let strides = self.wave.strides();
 
         let res = self
@@ -119,8 +109,6 @@ where
                 (nd_index, wavetile)
             })
             .max_by_key(|&(_, wavetile)| {
-                let wavetile = wavetile.read().expect("thread hung");
-
                 let entropy = wavetile.entropy;
 
                 entropy
@@ -135,7 +123,6 @@ where
         // scope this in order to avoid hanging
         let max_entropy = {
             let (_, wavetile) = self.max_entropy();
-            let wavetile = wavetile.read().expect("thread hung");
             wavetile.entropy
         };
 
@@ -145,35 +132,28 @@ where
         };
 
         // get starting index
-        let (index, wavetile) = match starting_index {
-            Some(index) => (index, &self.wave[index]),
-            None => self.min_entropy(),
+        let index = match starting_index {
+            Some(index) => index,
+            None => {
+                let (index, _) = self.min_entropy();
+                index
+            }
         };
 
         // collapse the starting tile
         {
-            let mut wavetile = wavetile
-                .write()
-                .expect("thread hung upon wavetile write attempt");
-
+            println!("Collapsing {:?}", index);
+            let wavetile = &mut self.wave[index];
             wavetile.collapse();
-
-            let mut diff = self.diffs[index].write().unwrap();
-            *diff = true;
+            self.diffs[index] = true;
         }
 
         self.propagate(&index);
 
         // handle the rest of the wave
         loop {
-            // reset diffs
-            self.diffs = ArcArray::from_shape_fn(self.shape, |_| RwLock::new(false));
-
-            let (_, wavetile) = self.max_entropy();
             let max_entropy = {
-                let wavetile = wavetile
-                    .read()
-                    .expect("thread hung upon wavetile read attempt");
+                let (_, wavetile) = self.max_entropy();
                 wavetile.entropy
             };
 
@@ -181,18 +161,12 @@ where
                 break;
             };
 
-            let (index, wavetile) = self.min_entropy();
             {
-                let mut wavetile = wavetile
-                    .write()
-                    .expect("thread hung upon wavetile write attempt");
-
+                let (index, _) = self.min_entropy();
+                println!("Collapsing {:?}", index);
+                let wavetile = &mut self.wave[index];
                 wavetile.collapse();
-
-                let mut diff = self.diffs[index]
-                    .write()
-                    .expect("thread hung upon diff write attempt");
-                *diff = true;
+                self.diffs[index] = true;
             }
 
             self.propagate(&index);
@@ -204,120 +178,70 @@ where
     ///  - stop propagation if neighboring tiles haven't updated
     ///  - currently, a wavetile looks at all of its neighbors, but it only needs to look at a
     ///  subset of those: the ones closer to the center of the wave.
-    pub fn propagate(&self, start: &[usize; N]) {
+    pub fn propagate(&mut self, start: &[usize; N]) {
         let t0 = SystemTime::now();
-        let mut total_skips = Arc::new(Mutex::new(0));
+        let mut skips = 0;
 
         let index_groups = self.get_index_groups(start);
 
+        // println!("{:?}", self.diffs);
+
         for index_group in index_groups.into_iter() {
-            // all tiles in an index group can be performed at the same time
-            index_group.par_iter().for_each(|&index| {
-                let total_skips = total_skips.clone();
+            for index in index_group.into_iter() {
+                let neighbor_indices = self.compute_neighbors(&index);
+
+                let skip = !neighbor_indices.iter().any(|(left, right)| {
+                    left.map_or(false, |idx| self.diffs[idx])
+                        || right.map_or(false, |idx| self.diffs[idx])
+                });
+
+                if skip {
+                    continue;
+                }
 
                 // note that if a `WaveTile` is on the edge of the wave, it might not have all its
                 // neighbors. This also depends on the wrapping logic chosen
-                let neighbors = self.compute_neighbors(&index);
-                let mut wavetile_neighbors: [(
+                let neighbor_hashes: [(
                     Option<HashSet<BoundaryHash>>,
                     Option<HashSet<BoundaryHash>>,
-                ); N] = vec![(None, None); N].try_into().unwrap();
+                ); N] = self
+                    .compute_neighbors(&index)
+                    .into_iter()
+                    .enumerate()
+                    .map(|(axis, (left, right))| {
+                        let left = left.filter(|&idx| self.diffs[idx]).map(|idx| {
+                            let wavetile = &self.wave[idx];
+                            let hashes = wavetile.hashes.get(axis).unwrap();
+                            hashes.1.clone()
+                        });
 
-                let mut num_skips = 0;
+                        let right = right.filter(|&idx| self.diffs[idx]).map(|idx| {
+                            let wavetile = &self.wave[idx];
+                            let hashes = wavetile.hashes.get(axis).unwrap();
+                            hashes.0.clone()
+                        });
 
-                // from the neighbor indices, we construct a list of the neighbors hashes
-                for (axis_index, index_pair) in neighbors.into_iter().enumerate() {
-                    // NOTE: the right hashset comes from the left tile because of how we compare
-                    // borders
-                    let (left_index, right_index) = index_pair;
-
-                    let right_hashset = match left_index {
-                        Some(neighbor_index) => {
-                            let diff = self.diffs[neighbor_index]
-                                .read()
-                                .expect("thread hung while attempting to read diff");
-
-                            // check if the neighbor has changed
-                            match *diff {
-                                true => {
-                                    let wavetile = self.wave[neighbor_index]
-                                        .read()
-                                        .expect("thread hung while attempting to read wavetile");
-
-                                    let hashes = wavetile.hashes.get(axis_index).unwrap();
-                                    let hashes = hashes.1.clone();
-
-                                    Some(hashes)
-                                }
-                                false => {
-                                    num_skips += 1;
-                                    None
-                                }
-                            }
-                        }
-                        None => {
-                            num_skips += 1;
-
-                            None
-                        }
-                    };
-
-                    let left_hashset = match right_index {
-                        Some(neighbor_index) => {
-                            let diff = self.diffs[neighbor_index]
-                                .read()
-                                .expect("thread hung while attempting to read diff");
-
-                            match *diff {
-                                true => {
-                                    let wavetile = self.wave[neighbor_index]
-                                        .read()
-                                        .expect("thread hung while attempting to read wavetile");
-
-                                    let hashes = wavetile.hashes.get(axis_index).unwrap();
-                                    let hashes = hashes.0.clone();
-
-                                    Some(hashes)
-                                }
-                                false => {
-                                    num_skips += 1;
-                                    None
-                                }
-                            }
-                        }
-                        None => {
-                            num_skips += 1;
-                            None
-                        }
-                    };
-
-                    wavetile_neighbors[axis_index] = (right_hashset, left_hashset);
-                }
-
-                let mut total_skips = total_skips.lock().unwrap();
-                *total_skips += num_skips;
+                        (left, right)
+                    })
+                    .collect::<Vec<_>>()
+                    .try_into()
+                    .unwrap();
 
                 // TODO: catch if a wavetile has no more options at this stage instead of on
                 // collapse?
-                let lock = &self.wave[index];
-                let mut wavetile = lock.write().expect("thread hung");
-                let wavetile_changed = wavetile.update(wavetile_neighbors);
-
-                // if statement so that we don't read unless we have to
-                if wavetile_changed {
-                    let mut diff = self.diffs[index].write().expect("thread hung");
-                    *diff = true;
-                }
-            });
+                self.diffs[index] = self.wave[index].update(neighbor_hashes);
+            }
         }
 
+        // reset diffs
+        Array::fill(&mut self.diffs, false);
+
         let t1 = SystemTime::now();
-        let total_skips = total_skips.lock().unwrap();
 
         println!(
             "Propagate in {:?}. Total skips: {}",
             t1.duration_since(t0).unwrap(),
-            *total_skips
+            skips
         );
     }
 
@@ -421,8 +345,8 @@ where
     }
 }
 
-pub fn from_sample<'a, T, const N: usize>(
-    sample: &'a Sample<T, N>,
+pub fn from_tiles<'a, T, const N: usize>(
+    tiles: Vec<&'a Tile<'a, T, N>>,
     shape: DimN<N>,
 ) -> Result<Wave<'a, T, N>, String>
 where
@@ -434,13 +358,13 @@ where
     SliceInfo<Vec<SliceInfoElem>, Dim<[usize; N]>, <Dim<[usize; N]> as Dimension>::Smaller>:
         SliceArg<DimN<N>>,
 {
-    let tiles = sample.tiles(); // sample.window(window_size);
-
+    // let tiles: Vec<_> = sample.0.iter().map(|data| Tile::new(data.view())).collect();
     let n = tiles.len();
+
     println!("{n} tiles");
 
     // create a wave of tiles of the appropriate shape from our sample image
-    Wave::new(tiles, shape)
+    Wave::new(shape, tiles)
 }
 
 impl<'a> Wave<'a, Pixel, 2> {
@@ -478,11 +402,7 @@ impl<'a> Wave<'a, Pixel, 2> {
         let tile_textures = self
             .wave
             .iter()
-            .map(|wavetile| {
-                let wavetile = wavetile.read().expect("thread hung");
-
-                wavetile.texture(&texture_creator)
-            })
+            .map(|wavetile| wavetile.texture(&texture_creator))
             .collect::<Vec<Result<SdlTexture, String>>>();
 
         // load every texture into the canvas, side by side
@@ -532,5 +452,37 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self.wave)
+    }
+}
+
+impl<'a> Wave<'a, Pixel, 2> {
+    fn to_img(&mut self, index: usize)
+    where
+        [usize; 2]: NdIndex<DimN<2>>,
+    {
+        let wavetiles = &self.wave;
+
+        let (width, height) = self.shape.into_pattern();
+        let scaling: usize = 30;
+
+        let mut imgbuf =
+            image::ImageBuffer::new((width * scaling) as u32, (height * scaling) as u32);
+
+        for (_, wavetile) in wavetiles.iter().enumerate() {
+            let pixels = wavetile.pixels();
+
+            // Iterate over the coordinates and pixels of the image
+            for (x, y, pixel) in imgbuf.enumerate_pixels_mut() {
+                let x = x as usize / scaling;
+                let y = y as usize / scaling;
+
+                let px = pixels.get([x, y]).unwrap().to_owned();
+                *pixel = image::Rgb(px);
+            }
+        }
+
+        imgbuf
+            .save(format!("./assets/wave/wave-{index}.png"))
+            .unwrap();
     }
 }
