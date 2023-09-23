@@ -5,8 +5,6 @@ use std::path::Path;
 use std::time::SystemTime;
 use wfc::sample;
 
-use crate::wfc::tile::Tile;
-
 mod wfc;
 
 fn main() -> Result<(), String> {

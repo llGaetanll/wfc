@@ -1,18 +1,8 @@
-use std::borrow::Borrow;
-use std::cell::{Ref, RefCell};
-use std::cmp::min_by_key;
 use std::collections::HashSet;
 use std::fmt::Debug;
-use std::path::Path;
-use std::rc::Rc;
-use std::sync::mpsc::Receiver;
-use std::sync::{mpsc, Arc, Mutex, RwLock};
-use std::thread;
 use std::time::SystemTime;
 
-use ndarray::{s, ArcArray, Array, Dim, Dimension, NdIndex, SliceArg, SliceInfo, SliceInfoElem};
-
-use rayon::prelude::*;
+use ndarray::{Array, Dim, Dimension, NdIndex, SliceArg, SliceInfo, SliceInfoElem};
 
 use sdl2::event::Event;
 use sdl2::image::InitFlag;
@@ -22,7 +12,6 @@ use sdl2::render::Texture as SdlTexture;
 
 use crate::wfc::types::BoundaryHash;
 
-use super::sample::{self, Sample};
 use super::tile::{DimN, Tile};
 use super::traits::SdlTexturable;
 use super::traits::{Hashable, Pixelizable};

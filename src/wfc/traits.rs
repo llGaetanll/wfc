@@ -1,6 +1,3 @@
-use std::sync::mpsc::Receiver;
-use std::thread;
-
 use ndarray::Array2;
 
 use sdl2::render::{Texture, TextureCreator};

@@ -1,26 +1,11 @@
 use image::{GenericImageView, Pixel as ImgPixel};
-use ndarray::{
-    Array, Array2, Array3, ArrayBase, ArrayView, Axis, Dim, Dimension, IntoDimension, Ix, Ix2,
-    NdIndex, OwnedRepr, RawData, RemoveAxis, SliceArg, SliceInfo, SliceInfoElem,
-};
-use sdl2::event::Event;
-use sdl2::image::InitFlag;
-use sdl2::keyboard::Keycode;
-use sdl2::pixels::PixelFormatEnum;
-use sdl2::rect::Rect;
-use sdl2::render::{Texture, TextureCreator};
-use sdl2::surface::Surface;
-use sdl2::video::WindowContext;
+use ndarray::{Array, ArrayView, Dim, Dimension, Ix2, NdIndex, SliceArg, SliceInfo, SliceInfoElem};
 use std::collections::hash_map::DefaultHasher;
-use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::path::Path;
-use std::sync::Arc;
-
-use crate::wfc::tile::TileHash;
 
 use super::tile::{DimN, Tile};
-use super::traits::{Hashable, Pixelizable, SdlTexturable};
+use super::traits::Hashable;
 use super::types::Pixel;
 
 /// We use an ndarray of type A and dimension D to store our data

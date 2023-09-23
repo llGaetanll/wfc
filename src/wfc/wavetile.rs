@@ -1,11 +1,9 @@
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::sync::mpsc::Receiver;
-use std::sync::Arc;
 
 use ndarray::{Array2, Dim, Dimension, NdIndex, SliceArg, SliceInfo, SliceInfoElem};
 
-use rand::prelude::*;
 use rand::Rng;
 
 use sdl2::event::Event;
@@ -17,7 +15,6 @@ use sdl2::render::{Texture, TextureCreator};
 use sdl2::surface::Surface;
 use sdl2::video::WindowContext;
 
-use super::sample::Sample;
 use super::tile::Tile;
 use super::traits::{Hashable, Pixelizable, SdlTexturable};
 use super::types::{BoundaryHash, Pixel};
