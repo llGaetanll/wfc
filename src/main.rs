@@ -3,7 +3,6 @@ use regex::Regex;
 use std::env;
 use std::path::Path;
 use std::time::SystemTime;
-use wfc::sample;
 
 mod wfc;
 
@@ -27,21 +26,28 @@ fn main() -> Result<(), String> {
 
     let sdl_context = sdl2::init()?;
 
-    let sample = sample::from_image(&img_path, window_size, false, true)?;
+    let bitmap = wfc::sample::from_image(&img_path, window_size, true, true)?;
+    let tile_set = bitmap.tile_set();
+
+    let mut wave = tile_set.wave(Ix2(width, height));
+    wave.collapse(None);
+    wave.show(&sdl_context)?;
+
+    // let wave = crate::wfc::wave::new(&sample, Ix2(width, height))?;
 
     // THIS NEEDS TO BE DONE AT THE SAME SCOPE SO THAT THE LIFETIMES ARE THE SAME
-    let tiles = sample.tiles();
-    let tile_refs: Vec<_> = tiles.iter().map(|tile| tile).collect();
+    // let tiles = sample.tiles();
+    // let tile_refs: Vec<_> = tiles.iter().map(|tile| tile).collect();
 
-    let mut wave = crate::wfc::wave::from_tiles(tile_refs, Ix2(width, height))?;
+    // let mut wave = crate::wfc::wave::from_tiles(tile_refs, Ix2(width, height))?;
 
-    let t0 = SystemTime::now();
-    wave.collapse(None);
-    let t1 = SystemTime::now();
+    // let t0 = SystemTime::now();
+    // wave.collapse(None);
+    // let t1 = SystemTime::now();
 
-    println!("Collapse took {:?}", t1.duration_since(t0).unwrap());
-
-    wave.show(&sdl_context)?;
+    // println!("Collapse took {:?}", t1.duration_since(t0).unwrap());
+    //
+    // wave.show(&sdl_context)?;
 
     Ok(())
 }

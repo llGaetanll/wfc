@@ -1,8 +1,14 @@
-use std::collections::HashSet;
 use std::fmt::Debug;
+use std::hash::Hash;
 use std::time::SystemTime;
 
-use ndarray::{Array, Dim, Dimension, NdIndex, SliceArg, SliceInfo, SliceInfoElem};
+use ndarray::Array;
+use ndarray::Dim;
+use ndarray::Dimension;
+use ndarray::NdIndex;
+use ndarray::SliceArg;
+use ndarray::SliceInfo;
+use ndarray::SliceInfoElem;
 
 use sdl2::event::Event;
 use sdl2::image::InitFlag;
@@ -10,11 +16,13 @@ use sdl2::keyboard::Keycode;
 use sdl2::rect::Rect;
 use sdl2::render::Texture as SdlTexture;
 
-use crate::wfc::types::BoundaryHash;
+use bit_set::BitSet;
 
-use super::tile::{DimN, Tile};
+use super::sample::TileSet;
+use super::tile::Tile;
+use super::traits::Pixelizable;
 use super::traits::SdlTexturable;
-use super::traits::{Hashable, Pixelizable};
+use super::types::DimN;
 use super::types::Pixel;
 use super::wavetile::WaveTile;
 
@@ -24,7 +32,7 @@ use super::wavetile::WaveTile;
 /// `T` is the type of the element of the wave. All `WaveTile`s for a `Wave` hold the same type.
 pub struct Wave<'a, T, const N: usize>
 where
-    T: Hashable + Sync + std::fmt::Debug,
+    T: Hash + Sync + std::fmt::Debug,
     Dim<[usize; N]>: Dimension, // ensures that [usize; N] is a Dimension implemented by ndarray
     [usize; N]: NdIndex<Dim<[usize; N]>>, // ensures that any [usize; N] is a valid index into the nd array
 
@@ -35,14 +43,14 @@ where
     pub wave: Array<WaveTile<'a, T, N>, Dim<[usize; N]>>,
 
     // used to quickly compute diffs on wavetiles that have changed
-    diffs: Array<bool, DimN<N>>,
+    pub diffs: Array<bool, DimN<N>>,
 
-    shape: DimN<N>,
+    pub shape: DimN<N>,
 }
 
 impl<'a, T, const N: usize> Wave<'a, T, N>
 where
-    T: Hashable + Sync + Send + std::fmt::Debug,
+    T: Hash + Sync + Send + std::fmt::Debug,
     Dim<[usize; N]>: Dimension,
     [usize; N]: NdIndex<Dim<[usize; N]>>,
 
@@ -50,12 +58,28 @@ where
     SliceInfo<Vec<SliceInfoElem>, Dim<[usize; N]>, <Dim<[usize; N]> as Dimension>::Smaller>:
         SliceArg<Dim<[usize; N]>>,
 {
+    /*
     fn new(shape: DimN<N>, tiles: Vec<&'a Tile<'a, T, N>>) -> Result<Self, String> {
-        let wave = Array::from_shape_fn(shape, |_| WaveTile::new(tiles.clone()));
+        // assert that all tiles are the same shape
+        let iter = tiles.iter();
+        let tile_shape = iter.next().unwrap().shape();
+        assert!(iter.all(|tile| tile.shape() == tile_shape));
+
+        // the set of all unique boundary hashes of every tile
+        let hashes: HashSet<BoundaryHash> = tiles
+            .iter()
+            .flat_map(|tile| tile.hashes.iter().flat_map(|&(l, r)| [l, r].into_iter()))
+            .collect();
+
+        let num_hashes = hashes.len();
+        println!("{num_hashes} different hashes");
+
+        let wave = Array::from_shape_fn(shape, |_| WaveTile::new(tiles.clone(), num_hashes));
         let diffs = Array::from_shape_fn(shape, |_| false);
 
         Ok(Wave { wave, diffs, shape })
     }
+    */
 
     fn min_entropy(&self) -> ([usize; N], &WaveTile<'a, T, N>) {
         let strides = self.wave.strides();
@@ -140,26 +164,27 @@ where
         self.propagate(&index);
 
         // handle the rest of the wave
-        loop {
-            let max_entropy = {
-                let (_, wavetile) = self.max_entropy();
-                wavetile.entropy
-            };
-
-            if max_entropy < 2 {
-                break;
-            };
-
-            {
-                let (index, _) = self.min_entropy();
-                println!("Collapsing {:?}", index);
-                let wavetile = &mut self.wave[index];
-                wavetile.collapse();
-                self.diffs[index] = true;
-            }
-
-            self.propagate(&index);
-        }
+        // loop {
+        //     let max_entropy = {
+        //         // TODO: compute max & min entropy at propagate?
+        //         let (_, wavetile) = self.max_entropy();
+        //         wavetile.entropy
+        //     };
+        //
+        //     if max_entropy < 2 {
+        //         break;
+        //     };
+        //
+        //     {
+        //         let (index, _) = self.min_entropy();
+        //         println!("Collapsing {:?}", index);
+        //         let wavetile = &mut self.wave[index];
+        //         wavetile.collapse();
+        //         self.diffs[index] = true;
+        //     }
+        //
+        //     self.propagate(&index);
+        // }
     }
 
     /// Propagates the wave from an index `start`
@@ -190,10 +215,7 @@ where
 
                 // note that if a `WaveTile` is on the edge of the wave, it might not have all its
                 // neighbors. This also depends on the wrapping logic chosen
-                let neighbor_hashes: [(
-                    Option<HashSet<BoundaryHash>>,
-                    Option<HashSet<BoundaryHash>>,
-                ); N] = self
+                let neighbor_hashes: [[Option<BitSet>; 2]; N] = self
                     .compute_neighbors(&index)
                     .into_iter()
                     .enumerate()
@@ -201,16 +223,16 @@ where
                         let left = left.filter(|&idx| self.diffs[idx]).map(|idx| {
                             let wavetile = &self.wave[idx];
                             let hashes = wavetile.hashes.get(axis).unwrap();
-                            hashes.1.clone()
+                            hashes[1].clone()
                         });
 
                         let right = right.filter(|&idx| self.diffs[idx]).map(|idx| {
                             let wavetile = &self.wave[idx];
                             let hashes = wavetile.hashes.get(axis).unwrap();
-                            hashes.0.clone()
+                            hashes[0].clone()
                         });
 
-                        (left, right)
+                        [left, right]
                     })
                     .collect::<Vec<_>>()
                     .try_into()
@@ -334,12 +356,13 @@ where
     }
 }
 
+/*
 pub fn from_tiles<'a, T, const N: usize>(
     tiles: Vec<&'a Tile<'a, T, N>>,
     shape: DimN<N>,
 ) -> Result<Wave<'a, T, N>, String>
 where
-    T: Hashable + Sync + Send + std::fmt::Debug,
+    T: Hash + Sync + Send + std::fmt::Debug,
     DimN<N>: Dimension,
     [usize; N]: NdIndex<DimN<N>>,
 
@@ -355,6 +378,7 @@ where
     // create a wave of tiles of the appropriate shape from our sample image
     Wave::new(shape, tiles)
 }
+*/
 
 impl<'a> Wave<'a, Pixel, 2> {
     pub fn show(&self, sdl_context: &sdl2::Sdl) -> Result<(), String> {
@@ -432,7 +456,7 @@ impl<'a> Wave<'a, Pixel, 2> {
 
 impl<'a, T, const N: usize> Debug for Wave<'a, T, N>
 where
-    T: Hashable + Sync + Send + std::fmt::Debug,
+    T: Hash + Sync + Send + std::fmt::Debug,
     Dim<[usize; N]>: Dimension,
     [usize; N]: NdIndex<Dim<[usize; N]>>,
 
@@ -466,7 +490,7 @@ impl<'a> Wave<'a, Pixel, 2> {
                 let y = y as usize / scaling;
 
                 let px = pixels.get([x, y]).unwrap().to_owned();
-                *pixel = image::Rgb(px);
+                *pixel = image::Rgb(px.into());
             }
         }
 

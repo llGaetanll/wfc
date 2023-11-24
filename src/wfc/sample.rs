@@ -1,38 +1,57 @@
-use image::{GenericImageView, Pixel as ImgPixel};
-use ndarray::{Array, ArrayView, Dim, Dimension, Ix2, NdIndex, SliceArg, SliceInfo, SliceInfoElem};
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
+use std::fmt::Debug;
+use std::hash::Hash;
 use std::path::Path;
 
-use super::tile::{DimN, Tile};
-use super::traits::Hashable;
+use bit_set::BitSet;
+
+use image::GenericImageView;
+use image::Pixel as ImgPixel;
+
+use ndarray::Array;
+use ndarray::Array3;
+use ndarray::Axis;
+use ndarray::Dimension;
+use ndarray::Ix2;
+use ndarray::NdIndex;
+use ndarray::SliceArg;
+use ndarray::SliceInfo;
+use ndarray::SliceInfoElem;
+
+use super::tile::Tile;
+use super::traits::TileArrayBoundaryHashExt;
+use super::traits::TileArrayHashExt;
+use super::traits::TileArrayTransformationsExt;
+use super::types::BoundaryHash;
+use super::types::DimN;
 use super::types::Pixel;
+use super::wave::Wave;
+use super::wavetile::WaveTile;
 
-/// We use an ndarray of type A and dimension D to store our data
-/// `N` is the dimension of the Sample, `T` is the type of each element
-///
-/// Samples contain a list of tiles
-pub struct Sample<T, const N: usize>(pub Vec<Array<T, DimN<N>>>)
+pub struct BitMap<T, const N: usize>
 where
-    T: Hashable,
-    DimN<N>: Dimension;
+    DimN<N>: Dimension,
+{
+    data: Box<Array<T, <DimN<N> as Dimension>::Larger>>,
+    num_tiles: usize,
+}
 
-// TODO: use better types to represent rotations and flips?
 pub fn from_image(
     path: &Path,
     win_size: usize,
-    rotations: bool,
-    flips: bool,
-) -> Result<Sample<Pixel, 2>, String> {
+    with_rotations: bool,
+    with_flips: bool,
+) -> Result<BitMap<Pixel, 2>, String> {
     // open the sample image
     let img = image::open(path).map_err(|e| e.to_string())?;
-
-    println!("img info: {:?}", img.dimensions());
     let (width, height) = img.dimensions();
+    let width = width as usize;
+    let height = height as usize;
 
     let pixels: Array<Pixel, Ix2> = img
         .pixels()
-        .map(|p| p.2.to_rgb().0)
+        .map(|p| p.2.to_rgb().0.into())
         .collect::<Array<_, _>>()
         .into_shape((width as usize, height as usize))
         .unwrap();
@@ -41,208 +60,177 @@ pub fn from_image(
     let dim = [win_size; 2];
 
     // complete list of unique tiles
-    // let mut tiles: HashMap<u64, Array<Pixel, Ix2>> = HashMap::new();
-    let mut tiles = Vec::new();
+    let mut tiles: HashMap<u64, Array<Pixel, Ix2>> = HashMap::new();
 
     for window in pixels.windows(dim).into_iter() {
-        // let flips = tile_flips(window);
-        let rots = tile_rots(window);
-        // let flips = flips.into_iter().map(|tile| (hash(&tile), tile));
+        // if with_flips {
+        //     let flips = tile_flips(window)
+        //         .into_iter()
+        //         .map(|tile| (hash(&tile), tile));
+        //
+        //     tiles.extend(rotations);
+        // }
 
-        tiles.extend(rots);
+        if with_rotations {
+            let rotations = window
+                .rotations()
+                .into_iter()
+                .map(|tile| (TileArrayHashExt::hash(&tile.view()), tile));
+
+            tiles.extend(rotations);
+        }
     }
 
-    // let tiles = tiles.into_values().collect();
-    let sample = Sample(tiles);
+    let num_tiles = tiles.len();
 
-    // sample.tiles_to_img();
+    println!("Created a {num_tiles} x {win_size} x {win_size} bitmap");
 
-    Ok(sample)
+    // Create a bitmap from the tiles array.
+    let bitmap = Array3::from_shape_vec(
+        (num_tiles, win_size, win_size),
+        tiles.into_values().flatten().collect(),
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(BitMap {
+        data: Box::new(bitmap),
+        num_tiles,
+    })
 }
 
-fn hash<T, const N: usize>(view: &Array<T, DimN<N>>) -> u64
+impl<T, const N: usize> BitMap<T, N>
+where
+    T: Hash,
+    DimN<N>: Dimension,
+
+    SliceInfo<Vec<SliceInfoElem>, DimN<N>, <DimN<N> as Dimension>::Smaller>: SliceArg<DimN<N>>,
+{
+    pub fn tile_set<'a>(&'a self) -> TileSet<'a, T, N>
+    where
+        // we need this bound because our bitmap's dimension is larger than the tiles so when we
+        // extract the tiles out, the dimension lowers again. This bound is effectively trivial but
+        // the type checker can't know this
+        <DimN<N> as Dimension>::Larger: Dimension<Smaller = DimN<N>>,
+    {
+        // construct a list of unique hashes each with an index accessible in constant time.
+        let mut hash_index: usize = 0;
+        let mut unique_hashes: HashMap<BoundaryHash, usize> = HashMap::new();
+        let mut tile_hashes = Vec::with_capacity(self.num_tiles);
+
+        // iterate through all the tiles in the bitmap
+        for tile in self.data.axis_iter(Axis(0)) {
+            let hashes = tile.boundary_hashes();
+            tile_hashes.push(hashes);
+
+            // add all unique hashes to an index map
+            for &hash in hashes.iter().flat_map(|h| h.iter()) {
+                match unique_hashes.entry(hash) {
+                    Entry::Vacant(v) => {
+                        v.insert(hash_index);
+                        hash_index += 1;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // transform the tiles into a list of pairs
+        let num_hashes = unique_hashes.len();
+        let tiles: Vec<Tile<'a, T, N>> = self
+            .data
+            .axis_iter(Axis(0))
+            .zip(tile_hashes.iter())
+            .map(|(view, hashes)| {
+                let mut hash_index: [[BitSet; 2]; N] =
+                    vec![
+                        vec![BitSet::with_capacity(num_hashes); 2]
+                            .try_into()
+                            .unwrap();
+                        2
+                    ]
+                    .try_into()
+                    .unwrap();
+
+                let it = hashes.iter().zip(hash_index.iter_mut());
+                for ([hash_left, hash_right], [bset_left, bset_right]) in it {
+                    bset_left.insert(unique_hashes[hash_left]);
+                    bset_right.insert(unique_hashes[hash_right]);
+                }
+
+                Tile::new(view, hash_index)
+            })
+            .collect();
+
+        let hashes: Vec<BoundaryHash> = unique_hashes.into_keys().collect();
+
+        TileSet { hashes, tiles }
+    }
+}
+
+pub struct TileSet<'a, T, const N: usize>
 where
     T: Hash,
     DimN<N>: Dimension,
 {
-    let mut s = DefaultHasher::new();
-    view.hash(&mut s);
-    s.finish()
+    // all unique hashes. Order matters
+    pub hashes: Vec<BoundaryHash>,
+
+    // tiles are views into the bitmap
+    pub tiles: Vec<Tile<'a, T, N>>,
 }
 
-// only 2D for now
-fn tile_flips<T>(view: ArrayView<T, Ix2>) -> Vec<Array<T, Ix2>>
+impl<'a, T, const N: usize> TileSet<'a, T, N>
 where
-    T: Clone,
-{
-    let mut flips = vec![];
-    flips.reserve(2);
-
-    // width of tile
-    let size = *view.shape().first().unwrap();
-
-    for axis in 0..2 {
-        let flip: Array<T, Ix2> = Array::from_shape_fn(view.dim(), |idx| {
-            let mut idx: [usize; 2] = idx.into();
-            idx[axis] = size - idx[axis] - 1;
-
-            view[idx].to_owned()
-        });
-
-        flips.push(flip);
-    }
-
-    flips
-}
-
-// only in 2D for now
-fn tile_rots<T>(view: ArrayView<T, Ix2>) -> Vec<Array<T, Ix2>>
-where
-    T: Clone,
-{
-    // width of tile
-    let n = *view.shape().first().unwrap();
-    let view_t = view.t();
-
-    let r1: Array<T, Ix2> = view.to_owned();
-    let r2: Array<T, Ix2> =
-        Array::from_shape_fn(view_t.dim(), |(i, j)| view_t[[n - i - 1, j]].to_owned());
-    let r3: Array<T, Ix2> =
-        Array::from_shape_fn(view.dim(), |(i, j)| view[[n - i - 1, n - j - 1]].to_owned());
-    let r4: Array<T, Ix2> =
-        Array::from_shape_fn(view_t.dim(), |(i, j)| view_t[[i, n - j - 1]].to_owned());
-
-    vec![r1, r2, r3, r4]
-}
-
-impl<T, const N: usize> Sample<T, N>
-where
-    T: Hashable,
+    T: Hash + Send + Sync + Clone + Debug,
     DimN<N>: Dimension,
+    [usize; N]: NdIndex<DimN<N>>,
 
-    // ensures that `D` is such that `SliceInfo` implements the `SliceArg` type of it.
-    SliceInfo<Vec<SliceInfoElem>, Dim<[usize; N]>, <Dim<[usize; N]> as Dimension>::Smaller>:
-        SliceArg<Dim<[usize; N]>>,
+    SliceInfo<Vec<SliceInfoElem>, DimN<N>, <DimN<N> as Dimension>::Smaller>: SliceArg<DimN<N>>,
 {
-    /***
-     * Returns the tiles from the sample
-     */
-    pub fn tiles(&self) -> Vec<Tile<T, N>> {
-        self.0.iter().map(|tile| Tile::new(tile.view())).collect()
-    }
-}
+    pub fn wave(&'a self, shape: DimN<N>) -> Wave<'a, T, N> {
+        let num_hashes = self.hashes.len();
 
-impl Sample<Pixel, 2> {
-    fn tiles_to_img(&self)
-    where
-        [usize; 2]: NdIndex<DimN<2>>,
-    {
-        let tiles = &self.0;
+        // computes the complete OR of all the boundarysets for each side of each axis in each
+        // dimension
+        let wavetile_hashes = self.tiles.iter()
+            .map(|tile| &tile.hashes)
+            .fold(
+            {
+                let init: [[BitSet; 2]; N] = vec![
+                    vec![BitSet::with_capacity(num_hashes); 2]
+                        .try_into()
+                        .unwrap();
+                    N
+                ]
+                .try_into()
+                .unwrap();
 
-        let [width, height]: [usize; 2] = self.0.first().unwrap().shape().try_into().unwrap();
-        let scaling: usize = 30;
+                init
+            },
+            |acc, bset| {
+                acc.iter()
+                    .zip(bset.iter())
+                    // TODO: inneficient?
+                    .map(|([acc_l, acc_r], [l, r])| {
+                        [
+                            BitSet::from_iter(acc_l.union(&l)),
+                            BitSet::from_iter(acc_r.union(&r)),
+                        ]
+                    })
+                    .collect::<Vec<_>>()
+                    .try_into()
+                    .unwrap()
+            },
+        );
 
-        for (i, tile) in tiles.iter().enumerate() {
-            let mut imgbuf =
-                image::ImageBuffer::new((width * scaling) as u32, (height * scaling) as u32);
+        let tile_refs: Vec<&'a Tile<'a, T, N>> = self.tiles.iter().map(|tile| tile).collect();
 
-            // Iterate over the coordinates and pixels of the image
-            for (x, y, pixel) in imgbuf.enumerate_pixels_mut() {
-                let x = x as usize / scaling;
-                let y = y as usize / scaling;
-
-                let px = tile.get([x, y]).unwrap().to_owned();
-                *pixel = image::Rgb(px);
-            }
-
-            imgbuf.save(format!("./assets/tiles/tile-{i}.png")).unwrap();
+        Wave {
+            wave: Array::from_shape_fn(shape, |_| {
+                WaveTile::new(tile_refs.clone(), wavetile_hashes.clone(), num_hashes)
+            }),
+            diffs: Array::from_shape_fn(shape, |_| false),
+            shape,
         }
     }
 }
-
-/*
-impl Pixelizable for Sample<Pixel, 2> {
-    fn pixels(&self) -> ndarray::Array2<Pixel> {
-        self.0.to_owned()
-    }
-}
-
-impl SdlTexturable for Sample<Pixel, 2> {
-    fn texture<'b>(
-        &self,
-        texture_creator: &'b TextureCreator<WindowContext>,
-    ) -> Result<Texture<'b>, String> {
-        let [width, height]: [usize; 2] = self.0.shape().try_into().unwrap();
-
-        let mut flat_pixels: Vec<u8> = self
-            .pixels()
-            .into_iter()
-            .flat_map(|pixel| pixel.into_iter().map(|p| p))
-            .collect();
-
-        let surface = Surface::from_data(
-            &mut flat_pixels,
-            width as u32,     // width of the texture
-            height as u32,    // height of the texture
-            width as u32 * 3, // this is the number of channels for each pixel
-            PixelFormatEnum::RGB24,
-        )
-        .map_err(|e| e.to_string())?;
-
-        // create a texture from the surface
-        texture_creator
-            .create_texture_from_surface(surface)
-            .map_err(|e| e.to_string())
-    }
-}
-
-impl Sample<Pixel, 2> {
-    pub fn show(&self, sdl_context: &sdl2::Sdl) -> Result<(), String> {
-        let [width, height]: [usize; 2] = self.0.shape().try_into().unwrap();
-
-        let video_subsystem = sdl_context.video()?;
-        let _image_context = sdl2::image::init(InitFlag::PNG | InitFlag::JPG)?;
-        let window = video_subsystem
-            .window("Tile View", 50 * width as u32, 50 * height as u32) // TODO: cleanup
-            .position_centered()
-            .build()
-            .map_err(|e| e.to_string())?;
-
-        let mut canvas = window
-            .into_canvas()
-            .software()
-            .build()
-            .map_err(|e| e.to_string())?;
-
-        let texture_creator = canvas.texture_creator();
-
-        let texture = &self.texture(&texture_creator)?;
-
-        canvas.copy(
-            texture,
-            None,
-            Rect::new(0, 0, 50 * width as u32, 50 * height as u32), // TODO: cleanup
-        )?;
-
-        canvas.present();
-
-        'mainloop: loop {
-            for event in sdl_context.event_pump()?.poll_iter() {
-                match event {
-                    Event::Quit { .. }
-                    | Event::KeyDown {
-                        keycode: Option::Some(Keycode::Escape),
-                        ..
-                    } => break 'mainloop,
-                    _ => {}
-                }
-            }
-
-            // sleep to not overwhelm system resources
-            std::thread::sleep(std::time::Duration::from_millis(200));
-        }
-
-        Ok(())
-    }
-}
-*/

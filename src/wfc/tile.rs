@@ -1,4 +1,11 @@
-use ndarray::{Array2, ArrayView, Dim, Dimension, SliceArg, SliceInfo, SliceInfoElem};
+use ndarray::Array2;
+use ndarray::ArrayView;
+use ndarray::Dim;
+use ndarray::Dimension;
+use ndarray::SliceArg;
+use ndarray::SliceInfo;
+use ndarray::SliceInfoElem;
+
 use sdl2::event::Event;
 use sdl2::image::InitFlag;
 use sdl2::keyboard::Keycode;
@@ -9,20 +16,17 @@ use sdl2::render::TextureCreator;
 use sdl2::surface::Surface;
 use sdl2::video::WindowContext;
 
-use std::collections::hash_map::DefaultHasher;
+use bit_set::BitSet;
+
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::hash::Hasher;
 
-use super::traits::Hashable;
 use super::traits::Pixelizable;
 use super::traits::SdlTexturable;
-use super::types::BoundaryHash;
+use super::traits::TileArrayHashExt;
+use super::types::DimN;
 use super::types::Pixel;
-
-pub type TileHash = u64;
-
-pub type DimN<const N: usize> = Dim<[usize; N]>;
+use super::types::TileHash;
 
 /// A `Tile` is a view into our Sample
 /// `D` is the dimension of each tile
@@ -34,11 +38,11 @@ pub type DimN<const N: usize> = Dim<[usize; N]>;
 /// Note: all axes of the dynamic array are the same size.
 pub struct Tile<'a, T, const N: usize>
 where
-    T: Hashable,
-    Dim<[usize; N]>: Dimension,
+    T: Hash,
+    DimN<N>: Dimension,
 {
     /// The data of the Tile. Note that the tile does not own its data.
-    data: ArrayView<'a, T, Dim<[usize; N]>>,
+    data: ArrayView<'a, T, DimN<N>>,
 
     /// The hash of the current tile. This is computed from the Type that the
     /// tile references. If two tiles have the same data, they will have
@@ -47,25 +51,25 @@ where
 
     /// The hash of each side of the tile.
     /// Each tuple represents opposite sides on an axis of the tile.
-    pub hashes: [(BoundaryHash, BoundaryHash); N],
+    pub hashes: [[BitSet; 2]; N],
 }
 
 impl<'a, T, const N: usize> Tile<'a, T, N>
 where
-    T: Hashable,
-    Dim<[usize; N]>: Dimension,
+    T: Hash,
+    DimN<N>: Dimension,
 
-    SliceInfo<Vec<SliceInfoElem>, Dim<[usize; N]>, <Dim<[usize; N]> as Dimension>::Smaller>:
-        SliceArg<Dim<[usize; N]>>,
+    SliceInfo<Vec<SliceInfoElem>, DimN<N>, <DimN<N> as Dimension>::Smaller>: SliceArg<DimN<N>>,
 {
     /***
      * Create a new tile from an ndarray
      */
-    pub fn new(data: ArrayView<'a, T, Dim<[usize; N]>>) -> Self {
-        let id = Self::compute_id(&data);
-        let hashes = Self::compute_hashes(&data);
-
-        Tile { data, id, hashes }
+    pub fn new(data: ArrayView<'a, T, DimN<N>>, hashes: [[BitSet; 2]; N]) -> Self {
+        Tile {
+            data,
+            id: TileArrayHashExt::hash(&data),
+            hashes,
+        }
     }
 
     /***
@@ -77,27 +81,28 @@ where
         self.data.shape()[0]
     }
 
-    /***
-     * Compute the hash of the tile
-     */
-    fn compute_id(data: &ArrayView<'a, T, Dim<[usize; N]>>) -> TileHash {
-        // we iterate through each element of the tile and hash it
-        // it's important to note that the individual hashes of each element
-        // cannot collide. Hasher must ensure this
-
-        // NOTE: parallelize this? maybe not, it's too deep in the call stack
-        let hashes: Vec<u64> = data.iter().map(|el| el.hash()).collect();
-
-        // TODO: speed test this
-        // hash the list of hashes into one final hash for the whole tile
-        let mut s = DefaultHasher::new();
-        hashes.hash(&mut s);
-        s.finish()
-    }
+    // /***
+    //  * Compute the hash of the tile
+    //  */
+    // fn compute_id(data: &ArrayView<'a, T, DimN<N>>) -> TileHash {
+    //     // we iterate through each element of the tile and hash it
+    //     // it's important to note that the individual hashes of each element
+    //     // cannot collide. Hasher must ensure this
+    //
+    //     // NOTE: parallelize this? maybe not, it's too deep in the call stack
+    //     let hashes: Vec<u64> = data.iter().map(|el| el.hash()).collect();
+    //
+    //     // TODO: speed test this
+    //     // hash the list of hashes into one final hash for the whole tile
+    //     let mut s = DefaultHasher::new();
+    //     hashes.hash(&mut s);
+    //     s.finish()
+    // }
 
     /***
      * Compute the boundary hashes of the tile
      */
+    /*
     fn compute_hashes(
         data: &ArrayView<'a, T, Dim<[usize; N]>>,
     ) -> [(BoundaryHash, BoundaryHash); N] {
@@ -155,6 +160,7 @@ where
 
         b_hashes
     }
+    */
 }
 
 impl<'a> Pixelizable for Tile<'a, Pixel, 2> {
@@ -243,7 +249,7 @@ impl<'a> Tile<'a, Pixel, 2> {
 
 impl<'a, T, const N: usize> Debug for Tile<'a, T, N>
 where
-    T: Hashable + std::fmt::Debug,
+    T: Hash + std::fmt::Debug,
     Dim<[usize; N]>: Dimension,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

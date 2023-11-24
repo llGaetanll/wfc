@@ -1,41 +1,50 @@
-use std::collections::HashSet;
 use std::fmt::Debug;
+use std::hash::Hash;
 use std::sync::mpsc::Receiver;
 
-use ndarray::{Array2, Dim, Dimension, NdIndex, SliceArg, SliceInfo, SliceInfoElem};
+use ndarray::Array2;
+use ndarray::Dim;
+use ndarray::Dimension;
+use ndarray::NdIndex;
+use ndarray::SliceArg;
+use ndarray::SliceInfo;
+use ndarray::SliceInfoElem;
 
 use rand::Rng;
+
+use bit_set::BitSet;
 
 use sdl2::event::Event;
 use sdl2::image::InitFlag;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::rect::Rect;
-use sdl2::render::{Texture, TextureCreator};
+use sdl2::render::Texture;
+use sdl2::render::TextureCreator;
 use sdl2::surface::Surface;
 use sdl2::video::WindowContext;
 
 use super::tile::Tile;
-use super::traits::{Hashable, Pixelizable, SdlTexturable};
-use super::types::{BoundaryHash, Pixel};
+use super::traits::Pixelizable;
+use super::traits::SdlTexturable;
+use super::types::DimN;
+use super::types::Pixel;
 
 /// A `WaveTile` is a list of `Tile`s in superposition
 /// `T` is the type of each element of the tile
 /// `D` is the dimension of each tile
 pub struct WaveTile<'a, T, const N: usize>
 where
-    T: Hashable,
+    T: Hash,
     Dim<[usize; N]>: Dimension,
 
-    SliceInfo<Vec<SliceInfoElem>, Dim<[usize; N]>, <Dim<[usize; N]> as Dimension>::Smaller>:
-        SliceArg<Dim<[usize; N]>>,
+    SliceInfo<Vec<SliceInfoElem>, DimN<N>, <DimN<N> as Dimension>::Smaller>: SliceArg<DimN<N>>,
 {
     possible_tiles: Vec<&'a Tile<'a, T, N>>,
     filtered_tiles: Vec<Vec<&'a Tile<'a, T, N>>>,
 
-    /// list of memoized hashes derived from `possible_tiles`
-    /// TODO: might not need to be public
-    pub hashes: [(HashSet<BoundaryHash>, HashSet<BoundaryHash>); N],
+    num_hashes: usize,
+    pub hashes: [[BitSet; 2]; N],
 
     /// computed as the number of valid tiles
     pub entropy: usize,
@@ -44,26 +53,26 @@ where
 
 impl<'a, T, const N: usize> WaveTile<'a, T, N>
 where
-    T: Hashable + std::fmt::Debug,
+    T: Hash + std::fmt::Debug,
     Dim<[usize; N]>: Dimension,
 
-    // ensures that `D` is such that `SliceInfo` implements the `SliceArg` type of it.
-    SliceInfo<Vec<SliceInfoElem>, Dim<[usize; N]>, <Dim<[usize; N]> as Dimension>::Smaller>:
-        SliceArg<Dim<[usize; N]>>,
+    SliceInfo<Vec<SliceInfoElem>, DimN<N>, <DimN<N> as Dimension>::Smaller>: SliceArg<DimN<N>>,
 {
     /***
      * Create a new WaveTile from a list of tiles
-     * TODO: assert that all tiles are the same shape
      */
-    pub fn new(tiles: Vec<&'a Tile<'a, T, N>>) -> Self {
-        let hashes = Self::derive_hashes(&tiles);
-        let entropy = tiles.len();
-
+    pub fn new(
+        tiles: Vec<&'a Tile<'a, T, N>>,
+        hashes: [[BitSet; 2]; N],
+        num_hashes: usize,
+    ) -> Self {
         let shape = tiles[0].shape();
+        let entropy = tiles.len();
 
         WaveTile {
             possible_tiles: tiles,
             filtered_tiles: Vec::new(),
+            num_hashes,
             hashes,
             entropy,
             shape,
@@ -72,21 +81,25 @@ where
 
     /// Given a list of `tile`s that this WaveTile can be, this precomputes the list of valid
     /// hashes for each of its borders. This is used to speed up the wave propagation algorithm.
-    fn derive_hashes(
-        tiles: &Vec<&'a Tile<'a, T, N>>,
-    ) -> [(HashSet<BoundaryHash>, HashSet<BoundaryHash>); N] {
-        let mut hashes: [(HashSet<BoundaryHash>, HashSet<BoundaryHash>); N] =
-            vec![(HashSet::new(), HashSet::new()); N]
+    fn update_hashes(&mut self) -> [[BitSet; 2]; N] {
+        let mut hashes: [[BitSet; 2]; N] = vec![
+            vec![BitSet::with_capacity(self.num_hashes); 2]
                 .try_into()
                 .unwrap();
+            N
+        ]
+        .try_into()
+        .unwrap();
 
-        for tile in tiles.iter() {
-            for (j, axis_hash) in tile.hashes.iter().enumerate() {
-                let (h1, h2) = axis_hash.clone();
-                let (hs1, hs2) = &mut hashes[j];
+        // TODO: clean up
+        // set the hashes to be the total OR of all of the tiles
+        for tile in self.possible_tiles.iter() {
+            for (tile_hashes, self_hashes) in tile.hashes.iter().zip(hashes.iter_mut()) {
+                let [tile_left, tile_right] = tile_hashes;
+                let [self_left, self_right] = self_hashes;
 
-                hs1.insert(h1);
-                hs2.insert(h2);
+                self_left.union_with(tile_left);
+                self_right.union_with(tile_right);
             }
         }
 
@@ -113,7 +126,7 @@ where
         self.possible_tiles = vec![valid_tile];
         self.filtered_tiles.push(invalid_tiles);
 
-        self.hashes = Self::derive_hashes(&self.possible_tiles);
+        self.update_hashes();
         self.entropy = 1;
 
         Some(())
@@ -122,13 +135,10 @@ where
     /// Update the `possible_tiles` of the current `WaveTile` given a list of neighbors.
     ///
     /// returns whether the wavetile has changed
-    pub fn update(
-        &mut self,
-        neighbor_hashes: [(Option<HashSet<BoundaryHash>>, Option<HashSet<BoundaryHash>>); N],
-    ) -> bool {
+    pub fn update(&mut self, neighbor_hashes: [[Option<BitSet>; 2]; N]) -> bool {
         let same_neighbors = neighbor_hashes
             .iter()
-            .all(|(left, right)| left.is_none() && right.is_none());
+            .all(|[left, right]| left.is_none() && right.is_none());
 
         if self.entropy < 2 {
             return true;
@@ -138,36 +148,34 @@ where
             return true;
         }
 
-        let hashes: [(HashSet<BoundaryHash>, HashSet<BoundaryHash>); N] =
-            vec![(HashSet::new(), HashSet::new()); N]
+        let hashes: [[BitSet; 2]; N] = vec![
+            vec![BitSet::with_capacity(self.num_hashes); 2]
                 .try_into()
                 .unwrap();
+            N
+        ]
+        .try_into()
+        .unwrap();
 
         // owned copy of the self.hashes
         let hashes = std::mem::replace(&mut self.hashes, hashes);
 
-        let new_hashes: [(HashSet<BoundaryHash>, HashSet<BoundaryHash>); N] = hashes
+        let new_hashes: [[BitSet; 2]; N] = hashes
             .into_iter()
             .zip(neighbor_hashes.into_iter())
             .map(
-                |((wavetile_left, wavetile_right), (neighbor_right, neighbor_left))| {
+                |([wavetile_left, wavetile_right], [neighbor_right, neighbor_left])| {
                     let left = match neighbor_right {
-                        Some(hashes) => wavetile_left
-                            .intersection(&hashes)
-                            .map(|hash| hash.to_owned())
-                            .collect::<HashSet<BoundaryHash>>(),
+                        Some(hashes) => BitSet::from_iter(wavetile_left.intersection(&hashes)),
                         None => wavetile_left,
                     };
 
                     let right = match neighbor_left {
-                        Some(hashes) => wavetile_right
-                            .intersection(&hashes)
-                            .map(|hash| hash.to_owned())
-                            .collect::<HashSet<BoundaryHash>>(),
+                        Some(hashes) => BitSet::from_iter(wavetile_right.intersection(&hashes)),
                         None => wavetile_right,
                     };
 
-                    (left, right)
+                    [left, right]
                 },
             )
             .collect::<Vec<_>>()
@@ -181,8 +189,9 @@ where
             .drain(..) // allows us to effectively take ownership of the vector
             .partition(|&tile| {
                 tile.hashes.iter().zip(new_hashes.iter()).all(
-                    |((tile_left, tile_right), (wavetile_left, wavetile_right))| {
-                        wavetile_left.contains(tile_left) && wavetile_right.contains(tile_right)
+                    |([tile_left, tile_right], [wavetile_left, wavetile_right])| {
+                        wavetile_left.is_superset(tile_left)
+                            && wavetile_right.is_superset(tile_right)
                     },
                 )
             });
@@ -191,11 +200,11 @@ where
         let new_entropy = valid_tiles.len();
 
         self.entropy = new_entropy;
-        self.hashes = Self::derive_hashes(&valid_tiles);
+        self.update_hashes();
         self.possible_tiles = valid_tiles;
         self.filtered_tiles.push(invalid_tiles);
 
-        old_entropy != new_entropy;
+        // old_entropy != new_entropy;
 
         true
     }
@@ -238,13 +247,16 @@ impl<'a> Pixelizable for WaveTile<'a, Pixel, 2> {
                 )
                 .into_iter()
                 .map(|px| {
-                    px.into_iter()
+                    let pixel: [u8; 3] = px
+                        .into_iter()
                         .map(|c| c as u8)
                         .collect::<Vec<u8>>()
                         .try_into()
-                        .unwrap()
+                        .unwrap();
+
+                    pixel.into()
                 })
-                .collect::<Vec<[u8; 3]>>(),
+                .collect::<Vec<Pixel>>(),
         )
         .unwrap();
 
@@ -288,7 +300,7 @@ impl<'a> SdlTexturable for WaveTile<'a, Pixel, 2> {
 
 pub struct TileUpdate<'a, T, const N: usize>
 where
-    T: Hashable + std::fmt::Debug,
+    T: Hash + std::fmt::Debug,
     Dim<[usize; N]>: Dimension,
     [usize; N]: NdIndex<Dim<[usize; N]>>,
     SliceInfo<Vec<SliceInfoElem>, Dim<[usize; N]>, <Dim<[usize; N]> as Dimension>::Smaller>:
@@ -350,7 +362,7 @@ impl<'a> WaveTile<'a, Pixel, 2> {
 
 impl<'a, T, const N: usize> Debug for WaveTile<'a, T, N>
 where
-    T: Hashable + std::fmt::Debug,
+    T: Hash + std::fmt::Debug,
     Dim<[usize; N]>: Dimension,
 
     SliceInfo<Vec<SliceInfoElem>, Dim<[usize; N]>, <Dim<[usize; N]> as Dimension>::Smaller>:
