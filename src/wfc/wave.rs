@@ -18,8 +18,6 @@ use sdl2::render::Texture as SdlTexture;
 
 use bit_set::BitSet;
 
-use super::sample::TileSet;
-use super::tile::Tile;
 use super::traits::Pixelizable;
 use super::traits::SdlTexturable;
 use super::types::DimN;

@@ -75,7 +75,7 @@ pub fn from_image(
             let rotations = window
                 .rotations()
                 .into_iter()
-                .map(|tile| (TileArrayHashExt::hash(&tile.view()), tile));
+                .map(|tile| (TileArrayHashExt::hash(&tile), tile));
 
             tiles.extend(rotations);
         }

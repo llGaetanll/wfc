@@ -165,6 +165,11 @@ where
             .zip(neighbor_hashes.into_iter())
             .map(
                 |([wavetile_left, wavetile_right], [neighbor_right, neighbor_left])| {
+                    println!("wavetile_left: {:?}", wavetile_left);
+
+                    println!("neighbor_left: {:?}", neighbor_left);
+                    println!("neighbor_right: {:?}", neighbor_right);
+
                     let left = match neighbor_right {
                         Some(hashes) => BitSet::from_iter(wavetile_left.intersection(&hashes)),
                         None => wavetile_left,
