@@ -18,7 +18,7 @@ use sdl2::render::Texture as SdlTexture;
 
 use bit_set::BitSet;
 
-use super::traits::Pixelizable;
+use super::traits::Pixelize;
 use super::traits::SdlTexturable;
 use super::types::DimN;
 use super::types::Pixel;

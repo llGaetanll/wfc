@@ -21,12 +21,14 @@ use bit_set::BitSet;
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use super::traits::Pixelizable;
-use super::traits::SdlTexturable;
-use super::traits::TileArrayHashExt;
-use super::types::DimN;
-use super::types::Pixel;
-use super::types::TileHash;
+use crate::ext::ndarray as ndarray_ext;
+use ndarray_ext::ArrayHash;
+
+use crate::traits::Pixelize;
+use crate::traits::SdlTexturable;
+use crate::types::DimN;
+use crate::types::Pixel;
+use crate::types::TileHash;
 
 /// A `Tile` is a view into our Sample
 /// `D` is the dimension of each tile
@@ -67,7 +69,7 @@ where
     pub fn new(data: ArrayView<'a, T, DimN<N>>, hashes: [[BitSet; 2]; N]) -> Self {
         Tile {
             data,
-            id: TileArrayHashExt::hash(&data),
+            id: ArrayHash::hash(&data),
             hashes,
         }
     }
@@ -163,7 +165,7 @@ where
     */
 }
 
-impl<'a> Pixelizable for Tile<'a, Pixel, 2> {
+impl<'a> Pixelize for Tile<'a, Pixel, 2> {
     /***
      * Returns a pixel vector representation of the current tile
      */

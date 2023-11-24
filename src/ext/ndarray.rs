@@ -1,62 +1,68 @@
+use std::collections::hash_map::DefaultHasher;
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
+use std::hash::Hash;
+use std::hash::Hasher;
+
 use ndarray::Array;
-use ndarray::Array2;
 use ndarray::ArrayBase;
 use ndarray::ArrayView;
 use ndarray::Data;
-use ndarray::Dim;
 use ndarray::Dimension;
 use ndarray::Ix2;
 use ndarray::SliceArg;
 use ndarray::SliceInfo;
 use ndarray::SliceInfoElem;
 
-use sdl2::render::{Texture, TextureCreator};
-use sdl2::video::WindowContext;
+use crate::types::BoundaryHash;
+use crate::types::DimN;
+use crate::types::TileHash;
 
-use std::collections::hash_map::DefaultHasher;
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
+// Extensions to the ndarray crate needed for wfc.
 
-use std::hash::Hash;
-use std::hash::Hasher;
-
-use super::types::BoundaryHash;
-use super::types::DimN;
-use super::types::Pixel;
-use super::types::TileHash;
-
-/***
-* Returns an array of pixels
-*/
-pub trait Pixelizable {
-    fn pixels(&self) -> Array2<Pixel>;
-}
-
-/***
-* Can call show on the object to display a window
-*/
-/*
-pub trait SdlView {
-    type Updates;
-
-    /***
-     * Opens a window displaying the object
-     */
-    fn show(&self, sdl_context: &sdl2::Sdl, rx: Receiver<Self::Updates>) -> Result<(), String>;
-}
-*/
-
-pub trait TileArrayTransformationsExt<T> {
+pub trait ArrayTransformations<T> {
     fn rotations(&self) -> Vec<Array<T, Ix2>>;
 
     fn flips(&self) -> Vec<Array<T, Ix2>>;
 }
 
-pub trait TileArrayHashExt<const N: usize> {
+// Only 2D for now
+impl<'a, T> ArrayTransformations<T> for ArrayView<'a, T, Ix2>
+where
+    T: Clone,
+{
+    fn rotations(&self) -> Vec<Array<T, Ix2>> {
+        // side length of tile
+        let n = self.shape().first().unwrap();
+        let view_t = self.t();
+
+        let r1: Array<T, Ix2> = self.to_owned();
+        let r2: Array<T, Ix2> =
+            Array::from_shape_fn(view_t.dim(), |(i, j)| view_t[[n - i - 1, j]].to_owned());
+        let r3: Array<T, Ix2> =
+            Array::from_shape_fn(self.dim(), |(i, j)| self[[n - i - 1, n - j - 1]].to_owned());
+        let r4: Array<T, Ix2> =
+            Array::from_shape_fn(view_t.dim(), |(i, j)| view_t[[i, n - j - 1]].to_owned());
+
+        vec![r1, r2, r3, r4]
+    }
+
+    fn flips(&self) -> Vec<Array<T, Ix2>> {
+        // sidelength of tile
+        let n = self.shape().first().unwrap();
+
+        let horizontal = Array::from_shape_fn(self.dim(), |(i, j)| self[[n - i - 1, j]].to_owned());
+        let vertical = Array::from_shape_fn(self.dim(), |(i, j)| self[[i, n - j - 1]].to_owned());
+
+        vec![horizontal, vertical]
+    }
+}
+
+pub trait ArrayHash<const N: usize> {
     fn hash(&self) -> TileHash;
 }
 
-impl<S, const N: usize> TileArrayHashExt<N> for ArrayBase<S, DimN<N>>
+impl<S, const N: usize> ArrayHash<N> for ArrayBase<S, DimN<N>>
 where
     S: Data,
     S::Elem: Hash,
@@ -71,14 +77,14 @@ where
     }
 }
 
-pub trait TileArrayBoundaryHashExt<const N: usize>
+pub trait ArrayBoundaryHash<const N: usize>
 where
     DimN<N>: Dimension,
 {
     fn boundary_hashes(&self) -> [[BoundaryHash; 2]; N];
 }
 
-impl<S, const N: usize> TileArrayBoundaryHashExt<N> for ArrayBase<S, DimN<N>>
+impl<S, const N: usize> ArrayBoundaryHash<N> for ArrayBase<S, DimN<N>>
 where
     S: Data,
     S::Elem: Hash,
@@ -100,10 +106,7 @@ where
             let mut slice_info = vec![boundary_slice; N];
             slice_info[i] = SliceInfoElem::Index(side);
 
-            SliceInfo::<_, Dim<[usize; N]>, <Dim<[usize; N]> as Dimension>::Smaller>::try_from(
-                slice_info,
-            )
-            .unwrap()
+            SliceInfo::<_, DimN<N>, <DimN<N> as Dimension>::Smaller>::try_from(slice_info).unwrap()
         };
 
         let hash_slice = |slice: ArrayView<S::Elem, _>| -> BoundaryHash {
@@ -157,48 +160,3 @@ where
         tile_hashes
     }
 }
-
-impl<'a, T> TileArrayTransformationsExt<T> for ArrayView<'a, T, Ix2>
-where
-    T: Clone,
-{
-    fn rotations(&self) -> Vec<Array<T, Ix2>> {
-        // side length of tile
-        let n = self.shape().first().unwrap();
-        let view_t = self.t();
-
-        let r1: Array<T, Ix2> = self.to_owned();
-        let r2: Array<T, Ix2> =
-            Array::from_shape_fn(view_t.dim(), |(i, j)| view_t[[n - i - 1, j]].to_owned());
-        let r3: Array<T, Ix2> =
-            Array::from_shape_fn(self.dim(), |(i, j)| self[[n - i - 1, n - j - 1]].to_owned());
-        let r4: Array<T, Ix2> =
-            Array::from_shape_fn(view_t.dim(), |(i, j)| view_t[[i, n - j - 1]].to_owned());
-
-        vec![r1, r2, r3, r4]
-    }
-
-    fn flips(&self) -> Vec<Array<T, Ix2>> {
-        // sidelength of tile
-        let n = self.shape().first().unwrap();
-
-        let horizontal = Array::from_shape_fn(self.dim(), |(i, j)| self[[n - i - 1, j]].to_owned());
-        let vertical = Array::from_shape_fn(self.dim(), |(i, j)| self[[i, n - j - 1]].to_owned());
-
-        vec![horizontal, vertical]
-    }
-}
-
-/***
-* Can create a texture from the object
-*/
-pub trait SdlTexturable {
-    fn texture<'b>(
-        &self,
-        texture_creator: &'b TextureCreator<WindowContext>,
-    ) -> Result<Texture<'b>, String>;
-}
-
-// pub trait Hash {
-//     fn hash(&self) -> u64;
-// }

@@ -1,6 +1,5 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::fmt::Debug;
 use std::hash::Hash;
 use std::path::Path;
 
@@ -14,20 +13,20 @@ use ndarray::Array3;
 use ndarray::Axis;
 use ndarray::Dimension;
 use ndarray::Ix2;
-use ndarray::NdIndex;
 use ndarray::SliceArg;
 use ndarray::SliceInfo;
 use ndarray::SliceInfoElem;
 
-use super::tile::Tile;
-use super::traits::TileArrayBoundaryHashExt;
-use super::traits::TileArrayHashExt;
-use super::traits::TileArrayTransformationsExt;
-use super::types::BoundaryHash;
-use super::types::DimN;
-use super::types::Pixel;
-use super::wave::Wave;
-use super::wavetile::WaveTile;
+use crate::sample::TileSet;
+use crate::tile::Tile;
+use crate::types::BoundaryHash;
+use crate::types::DimN;
+use crate::types::Pixel;
+
+use crate::ext::ndarray as ndarray_ext;
+use ndarray_ext::ArrayHash;
+use ndarray_ext::ArrayTransformations;
+use ndarray_ext::ArrayBoundaryHash;
 
 pub struct BitMap<T, const N: usize>
 where
@@ -75,7 +74,7 @@ pub fn from_image(
             let rotations = window
                 .rotations()
                 .into_iter()
-                .map(|tile| (TileArrayHashExt::hash(&tile), tile));
+                .map(|tile| (ArrayHash::hash(&tile), tile));
 
             tiles.extend(rotations);
         }
@@ -164,73 +163,5 @@ where
         let hashes: Vec<BoundaryHash> = unique_hashes.into_keys().collect();
 
         TileSet { hashes, tiles }
-    }
-}
-
-pub struct TileSet<'a, T, const N: usize>
-where
-    T: Hash,
-    DimN<N>: Dimension,
-{
-    // all unique hashes. Order matters
-    pub hashes: Vec<BoundaryHash>,
-
-    // tiles are views into the bitmap
-    pub tiles: Vec<Tile<'a, T, N>>,
-}
-
-impl<'a, T, const N: usize> TileSet<'a, T, N>
-where
-    T: Hash + Send + Sync + Clone + Debug,
-    DimN<N>: Dimension,
-    [usize; N]: NdIndex<DimN<N>>,
-
-    SliceInfo<Vec<SliceInfoElem>, DimN<N>, <DimN<N> as Dimension>::Smaller>: SliceArg<DimN<N>>,
-{
-    pub fn wave(&'a self, shape: DimN<N>) -> Wave<'a, T, N> {
-        let num_hashes = self.hashes.len();
-
-        // computes the complete OR of all the boundarysets for each side of each axis in each
-        // dimension
-        let wavetile_hashes = self.tiles.iter()
-            .map(|tile| &tile.hashes)
-            .fold(
-            {
-                let init: [[BitSet; 2]; N] = vec![
-                    vec![BitSet::with_capacity(num_hashes); 2]
-                        .try_into()
-                        .unwrap();
-                    N
-                ]
-                .try_into()
-                .unwrap();
-
-                init
-            },
-            |acc, bset| {
-                acc.iter()
-                    .zip(bset.iter())
-                    // TODO: inneficient?
-                    .map(|([acc_l, acc_r], [l, r])| {
-                        [
-                            BitSet::from_iter(acc_l.union(&l)),
-                            BitSet::from_iter(acc_r.union(&r)),
-                        ]
-                    })
-                    .collect::<Vec<_>>()
-                    .try_into()
-                    .unwrap()
-            },
-        );
-
-        let tile_refs: Vec<&'a Tile<'a, T, N>> = self.tiles.iter().map(|tile| tile).collect();
-
-        Wave {
-            wave: Array::from_shape_fn(shape, |_| {
-                WaveTile::new(tile_refs.clone(), wavetile_hashes.clone(), num_hashes)
-            }),
-            diffs: Array::from_shape_fn(shape, |_| false),
-            shape,
-        }
     }
 }

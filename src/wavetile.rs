@@ -25,7 +25,7 @@ use sdl2::surface::Surface;
 use sdl2::video::WindowContext;
 
 use super::tile::Tile;
-use super::traits::Pixelizable;
+use super::traits::Pixelize;
 use super::traits::SdlTexturable;
 use super::types::DimN;
 use super::types::Pixel;
@@ -215,7 +215,7 @@ where
     }
 }
 
-impl<'a> Pixelizable for WaveTile<'a, Pixel, 2> {
+impl<'a> Pixelize for WaveTile<'a, Pixel, 2> {
     fn pixels(&self) -> Array2<Pixel> {
         // notice that a single number represents the size of the tile, no
         // matter the dimension. This is because it is enforced that all axes of
