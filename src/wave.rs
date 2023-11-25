@@ -2,6 +2,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::time::SystemTime;
 
+use log::debug;
 use ndarray::Array;
 use ndarray::Dim;
 use ndarray::Dimension;
@@ -17,6 +18,9 @@ use sdl2::rect::Rect;
 use sdl2::render::Texture as SdlTexture;
 
 use bit_set::BitSet;
+
+use crate::tile::Tile;
+use crate::tileset::TileSet;
 
 use super::traits::Pixelize;
 use super::traits::SdlTexturable;
@@ -56,28 +60,105 @@ where
     SliceInfo<Vec<SliceInfoElem>, Dim<[usize; N]>, <Dim<[usize; N]> as Dimension>::Smaller>:
         SliceArg<Dim<[usize; N]>>,
 {
-    /*
-    fn new(shape: DimN<N>, tiles: Vec<&'a Tile<'a, T, N>>) -> Result<Self, String> {
-        // assert that all tiles are the same shape
-        let iter = tiles.iter();
-        let tile_shape = iter.next().unwrap().shape();
-        assert!(iter.all(|tile| tile.shape() == tile_shape));
+    pub fn new(shape: DimN<N>, tile_set: &'a TileSet<'a, T, N>) -> Self {
+        let tiles = &tile_set.tiles;
 
-        // the set of all unique boundary hashes of every tile
-        let hashes: HashSet<BoundaryHash> = tiles
-            .iter()
-            .flat_map(|tile| tile.hashes.iter().flat_map(|&(l, r)| [l, r].into_iter()))
-            .collect();
+        let tile_refs: Vec<&'a Tile<'a, T, N>> = tiles.iter().map(|tile| tile).collect();
+        let tile_hashes: Vec<&[[BitSet; 2]; N]> = tiles.iter().map(|tile| &tile.hashes).collect();
 
-        let num_hashes = hashes.len();
-        println!("{num_hashes} different hashes");
+        let num_hashes = tile_set.hashes.len();
+        let wavetile_hashes = Self::merge_tile_bitsets(tile_hashes, num_hashes);
 
-        let wave = Array::from_shape_fn(shape, |_| WaveTile::new(tiles.clone(), num_hashes));
-        let diffs = Array::from_shape_fn(shape, |_| false);
-
-        Ok(Wave { wave, diffs, shape })
+        Wave {
+            wave: Array::from_shape_fn(shape, |_| {
+                WaveTile::new(tile_refs.clone(), wavetile_hashes.clone(), num_hashes)
+            }),
+            diffs: Array::from_shape_fn(shape, |_| false),
+            shape,
+        }
     }
-    */
+
+    /// Collapses the wave
+    pub fn collapse(&mut self, starting_index: Option<[usize; N]>) {
+        // scope this in order to avoid hanging
+        let max_entropy = {
+            let (_, wavetile) = self.max_entropy();
+            wavetile.entropy
+        };
+
+        // if the wave is fully collapsed
+        if max_entropy < 2 {
+            return;
+        };
+
+        // get starting index
+        let index = match starting_index {
+            Some(index) => index,
+            None => {
+                let (index, _) = self.min_entropy();
+                index
+            }
+        };
+
+        // collapse the starting tile
+        {
+            debug!("collapsing {:?}", index);
+            let wavetile = &mut self.wave[index];
+            wavetile.collapse();
+            self.diffs[index] = true;
+        }
+
+        self.propagate(&index);
+
+        // handle the rest of the wave
+        loop {
+            let max_entropy = {
+                // TODO: compute max & min entropy at propagate?
+                let (_, wavetile) = self.max_entropy();
+                wavetile.entropy
+            };
+
+            if max_entropy < 2 {
+                break;
+            };
+
+            {
+                let (index, _) = self.min_entropy();
+                debug!("Collapsing {:?}", index);
+                let wavetile = &mut self.wave[index];
+                wavetile.collapse();
+                self.diffs[index] = true;
+            }
+
+            self.propagate(&index);
+        }
+    }
+
+    // Computes the total union of the list of bit sets in `tile_hashes`.
+    fn merge_tile_bitsets(
+        tile_hashes: Vec<&[[BitSet; 2]; N]>,
+        capacity: usize,
+    ) -> [[BitSet; 2]; N] {
+        let mut hashes: [[BitSet; 2]; N] =
+            vec![vec![BitSet::with_capacity(capacity); 2].try_into().unwrap(); N]
+                .try_into()
+                .unwrap();
+
+        let or_bitsets = |main: &mut [[BitSet; 2]; N], other: &[[BitSet; 2]; N]| {
+            main.iter_mut().zip(other.iter()).for_each(
+                |([main_left, main_right], [other_left, other_right])| {
+                    main_left.union_with(other_left);
+                    main_right.union_with(other_right);
+                },
+            )
+        };
+
+        for tile_hash in tile_hashes {
+            or_bitsets(&mut hashes, tile_hash);
+        }
+
+        hashes
+    }
 
     fn min_entropy(&self) -> ([usize; N], &WaveTile<'a, T, N>) {
         let strides = self.wave.strides();
@@ -129,68 +210,12 @@ where
         res
     }
 
-    /// Collapses the wave
-    pub fn collapse(&mut self, starting_index: Option<[usize; N]>) {
-        // scope this in order to avoid hanging
-        let max_entropy = {
-            let (_, wavetile) = self.max_entropy();
-            wavetile.entropy
-        };
-
-        // if the wave is fully collapsed
-        if max_entropy < 2 {
-            return;
-        };
-
-        // get starting index
-        let index = match starting_index {
-            Some(index) => index,
-            None => {
-                let (index, _) = self.min_entropy();
-                index
-            }
-        };
-
-        // collapse the starting tile
-        {
-            println!("Collapsing {:?}", index);
-            let wavetile = &mut self.wave[index];
-            wavetile.collapse();
-            self.diffs[index] = true;
-        }
-
-        self.propagate(&index);
-
-        // handle the rest of the wave
-        // loop {
-        //     let max_entropy = {
-        //         // TODO: compute max & min entropy at propagate?
-        //         let (_, wavetile) = self.max_entropy();
-        //         wavetile.entropy
-        //     };
-        //
-        //     if max_entropy < 2 {
-        //         break;
-        //     };
-        //
-        //     {
-        //         let (index, _) = self.min_entropy();
-        //         println!("Collapsing {:?}", index);
-        //         let wavetile = &mut self.wave[index];
-        //         wavetile.collapse();
-        //         self.diffs[index] = true;
-        //     }
-        //
-        //     self.propagate(&index);
-        // }
-    }
-
     /// Propagates the wave from an index `start`
     /// TODO:
     ///  - stop propagation if neighboring tiles haven't updated
     ///  - currently, a wavetile looks at all of its neighbors, but it only needs to look at a
     ///  subset of those: the ones closer to the center of the wave.
-    pub fn propagate(&mut self, start: &[usize; N]) {
+    fn propagate(&mut self, start: &[usize; N]) {
         let t0 = SystemTime::now();
         let mut skips = 0;
 
@@ -207,34 +232,51 @@ where
                         || right.map_or(false, |idx| self.diffs[idx])
                 });
 
-                if skip {
-                    continue;
-                }
+                // if skip {
+                //     continue;
+                // }
+
+                let neighbor_indices = self.compute_neighbors(&index);
+
+                // debug!(
+                //     "Propagate [{:?}] - neighbor indices: {:?}",
+                //     index, neighbor_indices
+                // );
 
                 // note that if a `WaveTile` is on the edge of the wave, it might not have all its
                 // neighbors. This also depends on the wrapping logic chosen
-                let neighbor_hashes: [[Option<BitSet>; 2]; N] = self
-                    .compute_neighbors(&index)
+                let neighbor_hashes: [[Option<BitSet>; 2]; N] = neighbor_indices
                     .into_iter()
                     .enumerate()
                     .map(|(axis, (left, right))| {
-                        let left = left.filter(|&idx| self.diffs[idx]).map(|idx| {
-                            let wavetile = &self.wave[idx];
-                            let hashes = wavetile.hashes.get(axis).unwrap();
-                            hashes[1].clone()
-                        });
+                        let left = left
+                            // .filter(|&idx| self.diffs[idx])
+                            .map(|idx| {
+                                let wavetile = &self.wave[idx];
+                                let hashes: &[BitSet; 2] = &wavetile.hashes[axis];
+                                hashes[1].clone()
+                            });
 
-                        let right = right.filter(|&idx| self.diffs[idx]).map(|idx| {
-                            let wavetile = &self.wave[idx];
-                            let hashes = wavetile.hashes.get(axis).unwrap();
-                            hashes[0].clone()
-                        });
+                        let right = right
+                            // .filter(|&idx| self.diffs[idx])
+                            .map(|idx| {
+                                let wavetile = &self.wave[idx];
+                                let hashes: &[BitSet; 2] = &wavetile.hashes[axis];
+                                hashes[0].clone()
+                            });
 
                         [left, right]
                     })
                     .collect::<Vec<_>>()
                     .try_into()
                     .unwrap();
+
+                // debug!(
+                //     "Propagate [{:?}] - neighbor hashes: {:?}",
+                //     index, neighbor_hashes
+                // );
+
+                debug!("updating {:?}", index);
 
                 // TODO: catch if a wavetile has no more options at this stage instead of on
                 // collapse?
@@ -247,11 +289,11 @@ where
 
         let t1 = SystemTime::now();
 
-        println!(
-            "Propagate in {:?}. Total skips: {}",
-            t1.duration_since(t0).unwrap(),
-            skips
-        );
+        // println!(
+        //     "Propagate in {:?}. Total skips: {}",
+        //     t1.duration_since(t0).unwrap(),
+        //     skips
+        // );
     }
 
     /// TODO: doesn't really belong in wave..

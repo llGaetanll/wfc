@@ -8,6 +8,7 @@ use bit_set::BitSet;
 use image::GenericImageView;
 use image::Pixel as ImgPixel;
 
+use log::debug;
 use ndarray::Array;
 use ndarray::Array3;
 use ndarray::Axis;
@@ -17,16 +18,16 @@ use ndarray::SliceArg;
 use ndarray::SliceInfo;
 use ndarray::SliceInfoElem;
 
-use crate::sample::TileSet;
 use crate::tile::Tile;
+use crate::tileset::TileSet;
 use crate::types::BoundaryHash;
 use crate::types::DimN;
 use crate::types::Pixel;
 
 use crate::ext::ndarray as ndarray_ext;
+use ndarray_ext::ArrayBoundaryHash;
 use ndarray_ext::ArrayHash;
 use ndarray_ext::ArrayTransformations;
-use ndarray_ext::ArrayBoundaryHash;
 
 pub struct BitMap<T, const N: usize>
 where
@@ -42,6 +43,11 @@ pub fn from_image(
     with_rotations: bool,
     with_flips: bool,
 ) -> Result<BitMap<Pixel, 2>, String> {
+    debug!(
+        "Creating bitmap for image: {:?}. rots: {}, flips: {}",
+        path, with_rotations, with_flips
+    );
+
     // open the sample image
     let img = image::open(path).map_err(|e| e.to_string())?;
     let (width, height) = img.dimensions();
@@ -82,7 +88,7 @@ pub fn from_image(
 
     let num_tiles = tiles.len();
 
-    println!("Created a {num_tiles} x {win_size} x {win_size} bitmap");
+    debug!("Bitmap dims: {num_tiles} x {win_size} x {win_size}");
 
     // Create a bitmap from the tiles array.
     let bitmap = Array3::from_shape_vec(

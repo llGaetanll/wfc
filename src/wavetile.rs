@@ -2,6 +2,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::sync::mpsc::Receiver;
 
+use log::debug;
 use ndarray::Array2;
 use ndarray::Dim;
 use ndarray::Dimension;
@@ -81,29 +82,24 @@ where
 
     /// Given a list of `tile`s that this WaveTile can be, this precomputes the list of valid
     /// hashes for each of its borders. This is used to speed up the wave propagation algorithm.
-    fn update_hashes(&mut self) -> [[BitSet; 2]; N] {
-        let mut hashes: [[BitSet; 2]; N] = vec![
-            vec![BitSet::with_capacity(self.num_hashes); 2]
-                .try_into()
-                .unwrap();
-            N
-        ]
-        .try_into()
-        .unwrap();
+    ///
+    /// TODO: mutate is faster?
+    fn update_hashes(&mut self) {
+        // reset own bitsets
+        self.hashes.iter_mut().for_each(|[left, right]| {
+            left.clear();
+            right.clear();
+        });
 
-        // TODO: clean up
-        // set the hashes to be the total OR of all of the tiles
-        for tile in self.possible_tiles.iter() {
-            for (tile_hashes, self_hashes) in tile.hashes.iter().zip(hashes.iter_mut()) {
-                let [tile_left, tile_right] = tile_hashes;
-                let [self_left, self_right] = self_hashes;
-
+        // new bitsets is union of possible tiles
+        for tile in self.possible_tiles.iter_mut() {
+            for ([self_left, self_right], [tile_left, tile_right]) in
+                self.hashes.iter_mut().zip(tile.hashes.iter())
+            {
                 self_left.union_with(tile_left);
                 self_right.union_with(tile_right);
             }
         }
-
-        hashes
     }
 
     /// Collapses a `WaveTile` to one of its possible tiles, at random.
@@ -120,13 +116,31 @@ where
             .possible_tiles
             .drain(..)
             .enumerate()
+            // TODO: is filter_map necessary here??
             .filter_map(|(i, tile)| if i != idx { Some(tile) } else { None })
             .collect();
 
         self.possible_tiles = vec![valid_tile];
         self.filtered_tiles.push(invalid_tiles);
 
+        debug!(
+            "Collapsing wavetile, hashes before: {:?}",
+            self.hashes
+                .iter()
+                .map(|[l, r]| [l.len(), r.len()])
+                .collect::<Vec<_>>()
+        );
+
         self.update_hashes();
+
+        debug!(
+            "Collapsing wavetile, hashes after: {:?}",
+            self.hashes
+                .iter()
+                .map(|[l, r]| [l.len(), r.len()])
+                .collect::<Vec<_>>()
+        );
+
         self.entropy = 1;
 
         Some(())
@@ -157,35 +171,50 @@ where
         .try_into()
         .unwrap();
 
+        debug!(
+            "Neighbor hash sizes: {:?}",
+            neighbor_hashes
+                .iter()
+                .map(|[l, r]| [l.as_ref().map(|l| l.len()), r.as_ref().map(|r| r.len())])
+                .collect::<Vec<_>>()
+        );
+
         // owned copy of the self.hashes
-        let hashes = std::mem::replace(&mut self.hashes, hashes);
+        let mut hashes = std::mem::replace(&mut self.hashes, hashes);
 
-        let new_hashes: [[BitSet; 2]; N] = hashes
-            .into_iter()
-            .zip(neighbor_hashes.into_iter())
-            .map(
-                |([wavetile_left, wavetile_right], [neighbor_right, neighbor_left])| {
-                    println!("wavetile_left: {:?}", wavetile_left);
+        debug!(
+            "Num hashes before intersection: {:?}",
+            hashes
+                .iter()
+                .map(|[l, r]| [l.len(), r.len()])
+                .collect::<Vec<_>>()
+        );
 
-                    println!("neighbor_left: {:?}", neighbor_left);
-                    println!("neighbor_right: {:?}", neighbor_right);
+        // 1. For all neighbor hashes, compute the complete intersection over each axis
+        for ([self_left, self_right], [neighbor_right, neighbor_left]) in
+            hashes.iter_mut().zip(neighbor_hashes.iter())
+        {
+            if let Some(hashes) = neighbor_right {
+                self_left.intersect_with(hashes);
+            }
 
-                    let left = match neighbor_right {
-                        Some(hashes) => BitSet::from_iter(wavetile_left.intersection(&hashes)),
-                        None => wavetile_left,
-                    };
+            if let Some(hashes) = neighbor_left {
+                self_right.intersect_with(hashes);
+            }
+        }
 
-                    let right = match neighbor_left {
-                        Some(hashes) => BitSet::from_iter(wavetile_right.intersection(&hashes)),
-                        None => wavetile_right,
-                    };
+        // new hashes are computed
+        self.hashes = hashes;
 
-                    [left, right]
-                },
-            )
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
+        debug!(
+            "Num hashes after intersection: {:?}",
+            self.hashes
+                .iter()
+                .map(|[l, r]| [l.len(), r.len()])
+                .collect::<Vec<_>>()
+        );
+
+        let num_tiles_before = self.possible_tiles.len();
 
         // 2. for each tile, iterate over each axis, if any of its hashes are NOT in the
         //    possible_hashes, filter out the tile.
@@ -193,7 +222,7 @@ where
             .possible_tiles
             .drain(..) // allows us to effectively take ownership of the vector
             .partition(|&tile| {
-                tile.hashes.iter().zip(new_hashes.iter()).all(
+                tile.hashes.iter().zip(self.hashes.iter()).all(
                     |([tile_left, tile_right], [wavetile_left, wavetile_right])| {
                         wavetile_left.is_superset(tile_left)
                             && wavetile_right.is_superset(tile_right)
@@ -201,16 +230,30 @@ where
                 )
             });
 
-        let old_entropy = self.entropy;
-        let new_entropy = valid_tiles.len();
+        debug!("Tile count: {} -> {} ({} tiles culled)", num_tiles_before, valid_tiles.len(), invalid_tiles.len());
 
-        self.entropy = new_entropy;
-        self.update_hashes();
         self.possible_tiles = valid_tiles;
         self.filtered_tiles.push(invalid_tiles);
 
+        let old_entropy = self.entropy;
+        let new_entropy = self.possible_tiles.len();
+
+        self.entropy = new_entropy;
+
+        // NOTE: mutates self's hashes
+        self.update_hashes();
+
+        debug!(
+            "Num hashes after tile filtering: {:?}",
+            self.hashes
+                .iter()
+                .map(|[l, r]| [l.len(), r.len()])
+                .collect::<Vec<_>>()
+        );
+
         // old_entropy != new_entropy;
 
+        // TODO
         true
     }
 }
