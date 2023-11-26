@@ -2,7 +2,8 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::time::SystemTime;
 
-use log::debug;
+use log::info;
+
 use ndarray::Array;
 use ndarray::Dim;
 use ndarray::Dimension;
@@ -22,8 +23,8 @@ use bit_set::BitSet;
 use crate::tile::Tile;
 use crate::tileset::TileSet;
 
-use super::traits::SdlTexture;
 use super::traits::Pixel;
+use super::traits::SdlTexture;
 use super::types;
 use super::types::DimN;
 use super::wavetile::WaveTile;
@@ -47,6 +48,10 @@ where
     // used to quickly compute diffs on wavetiles that have changed
     pub diffs: Array<bool, DimN<N>>,
 
+    // cached to speed up propagate
+    min_entropy: (usize, [usize; N]),
+    max_entropy: (usize, [usize; N]),
+
     pub shape: DimN<N>,
 }
 
@@ -69,7 +74,12 @@ where
         let num_hashes = tile_set.hashes.len();
         let wavetile_hashes = Self::merge_tile_bitsets(tile_hashes, num_hashes);
 
+        let num_tiles = tiles.len();
+
         Wave {
+            min_entropy: (num_tiles, [0; N]),
+            max_entropy: (num_tiles, [0; N]),
+
             wave: Array::from_shape_fn(shape, |_| {
                 WaveTile::new(tile_refs.clone(), wavetile_hashes.clone(), num_hashes)
             }),
@@ -80,29 +90,22 @@ where
 
     /// Collapses the wave
     pub fn collapse(&mut self, starting_index: Option<[usize; N]>) {
-        // scope this in order to avoid hanging
-        let max_entropy = {
-            let (_, wavetile) = self.max_entropy();
-            wavetile.entropy
-        };
+        let t0 = SystemTime::now();
 
         // if the wave is fully collapsed
-        if max_entropy < 2 {
+        if self.max_entropy.0 < 2 {
             return;
         };
 
         // get starting index
         let index = match starting_index {
             Some(index) => index,
-            None => {
-                let (index, _) = self.min_entropy();
-                index
-            }
+            None => self.min_entropy.1
         };
 
         // collapse the starting tile
         {
-            debug!("collapsing {:?}", index);
+            info!("collapsing {:?}", index);
             let wavetile = &mut self.wave[index];
             wavetile.collapse();
             self.diffs[index] = true;
@@ -112,19 +115,14 @@ where
 
         // handle the rest of the wave
         loop {
-            let max_entropy = {
-                // TODO: compute max & min entropy at propagate?
-                let (_, wavetile) = self.max_entropy();
-                wavetile.entropy
-            };
-
-            if max_entropy < 2 {
+            if self.max_entropy.0 < 2 {
                 break;
             };
 
             {
-                let (index, _) = self.min_entropy();
-                debug!("Collapsing {:?}", index);
+                // let (index, _) = self.min_entropy();
+                let index = self.min_entropy.1;
+                info!("collapsing {:?}", index);
                 let wavetile = &mut self.wave[index];
                 wavetile.collapse();
                 self.diffs[index] = true;
@@ -132,6 +130,10 @@ where
 
             self.propagate(&index);
         }
+
+        let t1 = SystemTime::now();
+
+        info!("Collapsed wave in {:?}", t1.duration_since(t0).unwrap());
     }
 
     // Computes the total union of the list of bit sets in `tile_hashes`.
@@ -160,56 +162,6 @@ where
         hashes
     }
 
-    fn min_entropy(&self) -> ([usize; N], &WaveTile<'a, T, N>) {
-        let strides = self.wave.strides();
-
-        let res = self
-            .wave
-            .iter()
-            .enumerate()
-            .filter(|&(_, wavetile)| {
-                // want non-collapsed tiles
-                let non_collapsed = wavetile.entropy > 1;
-
-                non_collapsed
-            })
-            .map(|(flat_index, wavetile)| {
-                let nd_index = Self::compute_nd_index(flat_index, strides);
-
-                (nd_index, wavetile)
-            })
-            .min_by_key(|&(_, wavetile)| {
-                let entropy = wavetile.entropy;
-
-                entropy
-            })
-            .unwrap();
-
-        res
-    }
-
-    fn max_entropy(&self) -> ([usize; N], &WaveTile<'a, T, N>) {
-        let strides = self.wave.strides();
-
-        let res = self
-            .wave
-            .iter()
-            .enumerate()
-            .map(|(flat_index, wavetile)| {
-                let nd_index = Self::compute_nd_index(flat_index, strides);
-
-                (nd_index, wavetile)
-            })
-            .max_by_key(|&(_, wavetile)| {
-                let entropy = wavetile.entropy;
-
-                entropy
-            })
-            .unwrap();
-
-        res
-    }
-
     /// Propagates the wave from an index `start`
     /// TODO:
     ///  - stop propagation if neighboring tiles haven't updated
@@ -223,6 +175,21 @@ where
 
         // println!("{:?}", self.diffs);
 
+        let (mut min_entropy, mut min_idx) = (usize::MAX, self.min_entropy.1.clone());
+        let (mut max_entropy, mut max_idx) = (0, self.max_entropy.1.clone());
+
+        let mut upd_entropy = |entropy, index| {
+            if entropy > 1 && entropy < min_entropy {
+                min_entropy = entropy;
+                min_idx = index;
+            }
+
+            if entropy > max_entropy {
+                max_entropy = entropy;
+                max_idx = index;
+            }
+        };
+
         for index_group in index_groups.into_iter() {
             for index in index_group.into_iter() {
                 let neighbor_indices = self.compute_neighbors(&index);
@@ -232,9 +199,14 @@ where
                         || right.map_or(false, |idx| self.diffs[idx])
                 });
 
-                // if skip {
-                //     continue;
-                // }
+                if skip {
+                    // if we get to skip the current tile, it's elligible for entropy check
+                    let entropy = self.wave[index].entropy;
+                    upd_entropy(entropy, index);
+
+                    skips += 1;
+                    continue;
+                }
 
                 let neighbor_indices = self.compute_neighbors(&index);
 
@@ -276,24 +248,32 @@ where
                 //     index, neighbor_hashes
                 // );
 
-                debug!("updating {:?}", index);
+                // debug!("updating {:?}", index);
 
                 // TODO: catch if a wavetile has no more options at this stage instead of on
                 // collapse?
                 self.diffs[index] = self.wave[index].update(neighbor_hashes);
+
+                // update entropy bounds
+                let entropy = self.wave[index].entropy;
+                upd_entropy(entropy, index);
             }
         }
+
+        // update entropy
+        self.min_entropy = (min_entropy, min_idx);
+        self.max_entropy = (max_entropy, max_idx);
 
         // reset diffs
         Array::fill(&mut self.diffs, false);
 
         let t1 = SystemTime::now();
 
-        // println!(
-        //     "Propagate in {:?}. Total skips: {}",
-        //     t1.duration_since(t0).unwrap(),
-        //     skips
-        // );
+        info!(
+            "Propagate in {:?}. Total skips: {}",
+            t1.duration_since(t0).unwrap(),
+            skips
+        );
     }
 
     /// TODO: doesn't really belong in wave..
@@ -396,30 +376,6 @@ where
     }
 }
 
-/*
-pub fn from_tiles<'a, T, const N: usize>(
-    tiles: Vec<&'a Tile<'a, T, N>>,
-    shape: DimN<N>,
-) -> Result<Wave<'a, T, N>, String>
-where
-    T: Hash + Sync + Send + std::fmt::Debug,
-    DimN<N>: Dimension,
-    [usize; N]: NdIndex<DimN<N>>,
-
-    // ensures that `D` is such that `SliceInfo` implements the `SliceArg` type of it.
-    SliceInfo<Vec<SliceInfoElem>, Dim<[usize; N]>, <Dim<[usize; N]> as Dimension>::Smaller>:
-        SliceArg<DimN<N>>,
-{
-    // let tiles: Vec<_> = sample.0.iter().map(|data| Tile::new(data.view())).collect();
-    let n = tiles.len();
-
-    println!("{n} tiles");
-
-    // create a wave of tiles of the appropriate shape from our sample image
-    Wave::new(shape, tiles)
-}
-*/
-
 impl<'a> Wave<'a, types::Pixel, 2> {
     pub fn show(&self, sdl_context: &sdl2::Sdl) -> Result<(), String> {
         const TILE_SIZE: usize = 50;
@@ -455,7 +411,7 @@ impl<'a> Wave<'a, types::Pixel, 2> {
         let tile_textures = self
             .wave
             .iter()
-            .map(|wavetile| wavetile.texture(&texture_creator))
+            .map(|wavetile| SdlTexture::texture(wavetile, &texture_creator))
             .collect::<Vec<Result<Texture, String>>>();
 
         // load every texture into the canvas, side by side

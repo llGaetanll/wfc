@@ -1,6 +1,5 @@
 use ndarray::Array2;
 use ndarray::ArrayView;
-use ndarray::ArrayView2;
 use ndarray::Dim;
 use ndarray::Dimension;
 use ndarray::SliceArg;
@@ -10,12 +9,7 @@ use ndarray::SliceInfoElem;
 use sdl2::event::Event;
 use sdl2::image::InitFlag;
 use sdl2::keyboard::Keycode;
-use sdl2::pixels::PixelFormatEnum;
 use sdl2::rect::Rect;
-use sdl2::render::Texture;
-use sdl2::render::TextureCreator;
-use sdl2::surface::Surface;
-use sdl2::video::WindowContext;
 
 use bit_set::BitSet;
 
@@ -86,6 +80,10 @@ where
 }
 
 impl<'a> Pixel for Tile<'a, types::Pixel, 2> {
+    fn shape(&self) -> usize {
+        self.shape()
+    }
+
     /***
      * Returns a pixel vector representation of the current tile
      */
@@ -94,34 +92,8 @@ impl<'a> Pixel for Tile<'a, types::Pixel, 2> {
     }
 }
 
-impl<'a> SdlTexture for Tile<'a, types::Pixel, 2> {
-    fn texture<'b>(
-        &self,
-        texture_creator: &'b TextureCreator<WindowContext>,
-    ) -> Result<Texture<'b>, String> {
-        let size = self.shape();
-
-        let mut flat_pixels: Vec<u8> = self
-            .pixels()
-            .into_iter()
-            .flat_map(|pixel| pixel.into_iter().map(|p| p))
-            .collect();
-
-        let surface = Surface::from_data(
-            &mut flat_pixels,
-            size as u32,     // width of the texture
-            size as u32,     // height of the texture
-            size as u32 * 3, // this is the number of channels for each pixel
-            PixelFormatEnum::RGB24,
-        )
-        .map_err(|e| e.to_string())?;
-
-        // create a texture from the surface
-        texture_creator
-            .create_texture_from_surface(surface)
-            .map_err(|e| e.to_string())
-    }
-}
+// use default implementation
+impl<'a> SdlTexture for Tile<'a, types::Pixel, 2> {}
 
 impl<'a> Tile<'a, types::Pixel, 2> {
     pub fn show(&self, sdl_context: &sdl2::Sdl) -> Result<(), String> {

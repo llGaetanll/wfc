@@ -1,12 +1,10 @@
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::sync::mpsc::Receiver;
 
 use log::debug;
 use ndarray::Array2;
 use ndarray::Dim;
 use ndarray::Dimension;
-use ndarray::NdIndex;
 use ndarray::SliceArg;
 use ndarray::SliceInfo;
 use ndarray::SliceInfoElem;
@@ -14,16 +12,6 @@ use ndarray::SliceInfoElem;
 use rand::Rng;
 
 use bit_set::BitSet;
-
-use sdl2::event::Event;
-use sdl2::image::InitFlag;
-use sdl2::keyboard::Keycode;
-use sdl2::pixels::PixelFormatEnum;
-use sdl2::rect::Rect;
-use sdl2::render::Texture;
-use sdl2::render::TextureCreator;
-use sdl2::surface::Surface;
-use sdl2::video::WindowContext;
 
 use super::tile::Tile;
 
@@ -83,8 +71,6 @@ where
 
     /// Given a list of `tile`s that this WaveTile can be, this precomputes the list of valid
     /// hashes for each of its borders. This is used to speed up the wave propagation algorithm.
-    ///
-    /// TODO: mutate is faster?
     fn update_hashes(&mut self) {
         // reset own bitsets
         self.hashes.iter_mut().for_each(|[left, right]| {
@@ -259,12 +245,15 @@ where
 
         // old_entropy != new_entropy;
 
-        // TODO
         true
     }
 }
 
 impl<'a> Pixel for WaveTile<'a, types::Pixel, 2> {
+    fn shape(&self) -> usize {
+        self.shape
+    }
+
     fn pixels(&self) -> Array2<types::Pixel> {
         // notice that a single number represents the size of the tile, no
         // matter the dimension. This is because it is enforced that all axes of
@@ -304,39 +293,8 @@ impl<'a> Pixel for WaveTile<'a, types::Pixel, 2> {
     }
 }
 
-impl<'a> SdlTexture for WaveTile<'a, types::Pixel, 2> {
-    /***
-     * Create a texture object for the current wavetile
-     */
-    fn texture<'b>(
-        &self,
-        texture_creator: &'b TextureCreator<WindowContext>,
-    ) -> Result<Texture<'b>, String> {
-        let size = self.shape;
-
-        // we need to flatten the list of pixels to turn it into a texture
-        let mut flat_pixels: Vec<u8> = self
-            .pixels()
-            .into_iter()
-            .flat_map(|pixel| pixel.into_iter().map(|p| p))
-            .collect();
-
-        // create a surface from the flat pixels vector
-        let surface = Surface::from_data(
-            &mut flat_pixels,
-            size as u32,     // width of the texture
-            size as u32,     // height of the texture
-            size as u32 * 3, // this is the number of channels for each pixel
-            PixelFormatEnum::RGB24,
-        )
-        .map_err(|e| e.to_string())?;
-
-        // create a texture from the surface
-        texture_creator
-            .create_texture_from_surface(&surface)
-            .map_err(|e| e.to_string())
-    }
-}
+// use default implementation
+impl<'a> SdlTexture for WaveTile<'a, types::Pixel, 2> {}
 
 impl<'a, T, const N: usize> Debug for WaveTile<'a, T, N>
 where

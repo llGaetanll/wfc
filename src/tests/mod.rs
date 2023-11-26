@@ -37,14 +37,13 @@ fn simple() {
 
     let params = Params {
         img_path: img_path("sample.png"),
-        window_size: 5,
+        window_size: 3,
         wave_dims: Ix2(10, 10),
     };
 
     let sdl_context = sdl2::init().expect("failed to init sdl2 context");
 
-    let bitmap = crate::from_image(&params.img_path, params.window_size, true, true)
-        .expect("failed to create bitmap");
+    let bitmap = crate::from_image(&params.img_path, params.window_size, true, true).expect("failed to create bitmap");
     let tileset = bitmap.tile_set();
 
     let mut wave = tileset.wave(params.wave_dims);

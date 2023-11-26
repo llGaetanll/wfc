@@ -68,13 +68,14 @@ pub fn from_image(
     let mut tiles: HashMap<u64, Array<Pixel, Ix2>> = HashMap::new();
 
     for window in pixels.windows(dim).into_iter() {
-        // if with_flips {
-        //     let flips = tile_flips(window)
-        //         .into_iter()
-        //         .map(|tile| (hash(&tile), tile));
-        //
-        //     tiles.extend(rotations);
-        // }
+        if with_flips {
+            let flips = window
+                .flips()
+                .into_iter()
+                .map(|tile| (ArrayHash::hash(&tile), tile));
+
+            tiles.extend(flips);
+        }
 
         if with_rotations {
             let rotations = window
