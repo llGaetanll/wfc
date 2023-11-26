@@ -26,10 +26,11 @@ use sdl2::surface::Surface;
 use sdl2::video::WindowContext;
 
 use super::tile::Tile;
-use super::traits::Pixelize;
-use super::traits::SdlTexturable;
+
+use super::traits::Pixel;
+use super::traits::SdlTexture;
+use super::types;
 use super::types::DimN;
-use super::types::Pixel;
 
 /// A `WaveTile` is a list of `Tile`s in superposition
 /// `T` is the type of each element of the tile
@@ -230,7 +231,12 @@ where
                 )
             });
 
-        debug!("Tile count: {} -> {} ({} tiles culled)", num_tiles_before, valid_tiles.len(), invalid_tiles.len());
+        debug!(
+            "Tile count: {} -> {} ({} tiles culled)",
+            num_tiles_before,
+            valid_tiles.len(),
+            invalid_tiles.len()
+        );
 
         self.possible_tiles = valid_tiles;
         self.filtered_tiles.push(invalid_tiles);
@@ -258,61 +264,47 @@ where
     }
 }
 
-impl<'a> Pixelize for WaveTile<'a, Pixel, 2> {
-    fn pixels(&self) -> Array2<Pixel> {
+impl<'a> Pixel for WaveTile<'a, types::Pixel, 2> {
+    fn pixels(&self) -> Array2<types::Pixel> {
         // notice that a single number represents the size of the tile, no
         // matter the dimension. This is because it is enforced that all axes of
         // the tile be the same size.
         let size = self.shape;
+        let num_tiles = self.entropy;
 
-        let valid_tiles = self.possible_tiles.iter();
-        let num_tiles = valid_tiles.clone().count();
+        // merge all tiles into a single one, channel-wise
+        let mut pixels: Vec<[f64; 3]> = vec![[0., 0., 0.]; size * size];
+        for tile in &self.possible_tiles {
+            let tile_pixels = tile.pixels();
 
-        let wavetile_pixels = Array2::from_shape_vec(
-            (size, size),
-            valid_tiles
-                .fold(
-                    {
-                        let acc: Vec<[f64; 3]> = vec![[0., 0., 0.]; size * size];
-                        acc
-                    },
-                    |acc, tile| {
-                        acc.iter()
-                            .zip(tile.pixels().into_iter())
-                            .map(|(acc_px, tile_px)| {
-                                acc_px
-                                    .iter()
-                                    .zip(tile_px.into_iter())
-                                    .map(|(acc_chan, tile_chan)| {
-                                        acc_chan + ((tile_chan as f64) / (num_tiles as f64))
-                                    })
-                                    .collect::<Vec<f64>>()
-                                    .try_into()
-                                    .unwrap()
-                            })
-                            .collect()
-                    },
-                )
+            for (pixel, tile_pixel) in pixels.iter_mut().zip(tile_pixels.into_iter()) {
+                for (acc_c, c) in pixel.iter_mut().zip(tile_pixel.into_iter()) {
+                    // since division distributes over addition we can do the division in here and
+                    // avoid overflow at the cost of a higher (although negligible) floating point
+                    // error.
+                    *acc_c += (c as f64) / (num_tiles as f64);
+                }
+            }
+        }
+
+        let as_u8 = |px: [f64; 3]| -> types::Pixel {
+            let pixel: [u8; 3] = px
                 .into_iter()
-                .map(|px| {
-                    let pixel: [u8; 3] = px
-                        .into_iter()
-                        .map(|c| c as u8)
-                        .collect::<Vec<u8>>()
-                        .try_into()
-                        .unwrap();
+                .map(|c| c as u8)
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap();
+            pixel.into()
+        };
 
-                    pixel.into()
-                })
-                .collect::<Vec<Pixel>>(),
-        )
-        .unwrap();
+        // convert back into u8
+        let pixels: Vec<types::Pixel> = pixels.into_iter().map(as_u8).collect();
 
-        wavetile_pixels
+        Array2::from_shape_vec((size, size), pixels).expect("WaveTile pixel conversion failed")
     }
 }
 
-impl<'a> SdlTexturable for WaveTile<'a, Pixel, 2> {
+impl<'a> SdlTexture for WaveTile<'a, types::Pixel, 2> {
     /***
      * Create a texture object for the current wavetile
      */
@@ -343,68 +335,6 @@ impl<'a> SdlTexturable for WaveTile<'a, Pixel, 2> {
         texture_creator
             .create_texture_from_surface(&surface)
             .map_err(|e| e.to_string())
-    }
-}
-
-pub struct TileUpdate<'a, T, const N: usize>
-where
-    T: Hash + std::fmt::Debug,
-    Dim<[usize; N]>: Dimension,
-    [usize; N]: NdIndex<Dim<[usize; N]>>,
-    SliceInfo<Vec<SliceInfoElem>, Dim<[usize; N]>, <Dim<[usize; N]> as Dimension>::Smaller>:
-        SliceArg<Dim<[usize; N]>>,
-{
-    index: [usize; N],
-    wavetile: WaveTile<'a, T, N>,
-}
-
-impl<'a> WaveTile<'a, Pixel, 2> {
-    fn show<Upd: Send + Sync>(
-        &self,
-        sdl_context: &sdl2::Sdl,
-        rx: Receiver<Upd>,
-    ) -> Result<(), String> {
-        const WIN_SIZE: u32 = 100;
-
-        let video_subsystem = sdl_context.video()?;
-        let _image_context = sdl2::image::init(InitFlag::PNG | InitFlag::JPG)?;
-        let window = video_subsystem
-            .window("WaveTile View", WIN_SIZE, WIN_SIZE)
-            .position_centered()
-            .build()
-            .map_err(|e| e.to_string())?;
-
-        let mut canvas = window
-            .into_canvas()
-            .software()
-            .build()
-            .map_err(|e| e.to_string())?;
-
-        let texture_creator = canvas.texture_creator();
-
-        let texture = &self.texture(&texture_creator)?;
-
-        canvas.copy(texture, None, Rect::new(0, 0, WIN_SIZE, WIN_SIZE))?;
-
-        canvas.present();
-
-        'mainloop: loop {
-            for event in sdl_context.event_pump()?.poll_iter() {
-                match event {
-                    Event::Quit { .. }
-                    | Event::KeyDown {
-                        keycode: Option::Some(Keycode::Escape),
-                        ..
-                    } => break 'mainloop,
-                    _ => {}
-                }
-            }
-
-            // sleep to not overwhelm system resources
-            std::thread::sleep(std::time::Duration::from_millis(200));
-        }
-
-        Ok(())
     }
 }
 

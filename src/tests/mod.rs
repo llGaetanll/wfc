@@ -37,8 +37,8 @@ fn simple() {
 
     let params = Params {
         img_path: img_path("sample.png"),
-        window_size: 3,
-        wave_dims: Ix2(5, 5),
+        window_size: 5,
+        wave_dims: Ix2(10, 10),
     };
 
     let sdl_context = sdl2::init().expect("failed to init sdl2 context");

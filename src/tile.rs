@@ -1,5 +1,6 @@
 use ndarray::Array2;
 use ndarray::ArrayView;
+use ndarray::ArrayView2;
 use ndarray::Dim;
 use ndarray::Dimension;
 use ndarray::SliceArg;
@@ -24,10 +25,10 @@ use std::hash::Hash;
 use crate::ext::ndarray as ndarray_ext;
 use ndarray_ext::ArrayHash;
 
-use crate::traits::Pixelize;
-use crate::traits::SdlTexturable;
+use crate::traits::Pixel;
+use crate::traits::SdlTexture;
+use crate::types;
 use crate::types::DimN;
-use crate::types::Pixel;
 use crate::types::TileHash;
 
 /// A `Tile` is a view into our Sample
@@ -82,99 +83,18 @@ where
     pub fn shape(&self) -> usize {
         self.data.shape()[0]
     }
-
-    // /***
-    //  * Compute the hash of the tile
-    //  */
-    // fn compute_id(data: &ArrayView<'a, T, DimN<N>>) -> TileHash {
-    //     // we iterate through each element of the tile and hash it
-    //     // it's important to note that the individual hashes of each element
-    //     // cannot collide. Hasher must ensure this
-    //
-    //     // NOTE: parallelize this? maybe not, it's too deep in the call stack
-    //     let hashes: Vec<u64> = data.iter().map(|el| el.hash()).collect();
-    //
-    //     // TODO: speed test this
-    //     // hash the list of hashes into one final hash for the whole tile
-    //     let mut s = DefaultHasher::new();
-    //     hashes.hash(&mut s);
-    //     s.finish()
-    // }
-
-    /***
-     * Compute the boundary hashes of the tile
-     */
-    /*
-    fn compute_hashes(
-        data: &ArrayView<'a, T, Dim<[usize; N]>>,
-    ) -> [(BoundaryHash, BoundaryHash); N] {
-        let mut b_hashes: [(BoundaryHash, BoundaryHash); N] = [(0, 0); N];
-        // = Vec::new();
-
-        let boundary_slice = SliceInfoElem::Slice {
-            start: 0,
-            end: None,
-            step: 1,
-        };
-
-        // helper to slice the array on a particular axis
-        // FIXME: switch to using arrays instead of vecs for free speedup
-        let make_slice = |i: usize, side: isize| {
-            let mut slice_info = vec![boundary_slice; N];
-            slice_info[i] = SliceInfoElem::Index(side);
-
-            SliceInfo::<_, Dim<[usize; N]>, <Dim<[usize; N]> as Dimension>::Smaller>::try_from(
-                slice_info,
-            )
-            .unwrap()
-        };
-
-        // helper to hash a vector of hashes
-        let hash_vec = |hashes: Vec<u64>| {
-            let mut s = DefaultHasher::new();
-            hashes.hash(&mut s);
-            s.finish()
-        };
-
-        // for each dimension
-        for i in 0..N {
-            // front slice of the current axis
-            let front = make_slice(i, 0);
-
-            // back slice of the current axis
-            let back = make_slice(i, -1);
-
-            // slice the array on each axis
-            let front_slice = data.slice(front);
-            let back_slice = data.slice(back);
-
-            // flatten the boundary into a vector of hashes
-            let front_hashes: Vec<u64> = front_slice.iter().map(|el| el.hash()).collect();
-            let back_hashes: Vec<u64> = back_slice.iter().map(|el| el.hash()).collect();
-
-            // hash the vector of hashes
-            let front_hash = hash_vec(front_hashes);
-            let back_hash = hash_vec(back_hashes);
-
-            // add to hash list
-            b_hashes[i] = (front_hash, back_hash);
-        }
-
-        b_hashes
-    }
-    */
 }
 
-impl<'a> Pixelize for Tile<'a, Pixel, 2> {
+impl<'a> Pixel for Tile<'a, types::Pixel, 2> {
     /***
      * Returns a pixel vector representation of the current tile
      */
-    fn pixels(&self) -> Array2<Pixel> {
+    fn pixels(&self) -> Array2<types::Pixel> {
         self.data.to_owned()
     }
 }
 
-impl<'a> SdlTexturable for Tile<'a, Pixel, 2> {
+impl<'a> SdlTexture for Tile<'a, types::Pixel, 2> {
     fn texture<'b>(
         &self,
         texture_creator: &'b TextureCreator<WindowContext>,
@@ -203,7 +123,7 @@ impl<'a> SdlTexturable for Tile<'a, Pixel, 2> {
     }
 }
 
-impl<'a> Tile<'a, Pixel, 2> {
+impl<'a> Tile<'a, types::Pixel, 2> {
     pub fn show(&self, sdl_context: &sdl2::Sdl) -> Result<(), String> {
         const WIN_SIZE: u32 = 100;
 

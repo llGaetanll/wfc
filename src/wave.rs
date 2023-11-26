@@ -15,17 +15,17 @@ use sdl2::event::Event;
 use sdl2::image::InitFlag;
 use sdl2::keyboard::Keycode;
 use sdl2::rect::Rect;
-use sdl2::render::Texture as SdlTexture;
+use sdl2::render::Texture;
 
 use bit_set::BitSet;
 
 use crate::tile::Tile;
 use crate::tileset::TileSet;
 
-use super::traits::Pixelize;
-use super::traits::SdlTexturable;
+use super::traits::SdlTexture;
+use super::traits::Pixel;
+use super::types;
 use super::types::DimN;
-use super::types::Pixel;
 use super::wavetile::WaveTile;
 
 /// A `Wave` is a `D` dimensional array of `WaveTile`s.
@@ -420,7 +420,7 @@ where
 }
 */
 
-impl<'a> Wave<'a, Pixel, 2> {
+impl<'a> Wave<'a, types::Pixel, 2> {
     pub fn show(&self, sdl_context: &sdl2::Sdl) -> Result<(), String> {
         const TILE_SIZE: usize = 50;
 
@@ -456,7 +456,7 @@ impl<'a> Wave<'a, Pixel, 2> {
             .wave
             .iter()
             .map(|wavetile| wavetile.texture(&texture_creator))
-            .collect::<Vec<Result<SdlTexture, String>>>();
+            .collect::<Vec<Result<Texture, String>>>();
 
         // load every texture into the canvas, side by side
         for (i, tile_texture) in tile_textures.iter().enumerate() {
@@ -508,7 +508,7 @@ where
     }
 }
 
-impl<'a> Wave<'a, Pixel, 2> {
+impl<'a> Wave<'a, types::Pixel, 2> {
     fn to_img(&mut self, index: usize)
     where
         [usize; 2]: NdIndex<DimN<2>>,

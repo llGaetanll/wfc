@@ -1,34 +1,21 @@
-use ndarray::Array2;
+use ndarray::{Array2, ArrayView2};
 
 use sdl2::render::{Texture, TextureCreator};
 use sdl2::video::WindowContext;
 
-use crate::types::Pixel;
+use crate::types;
 
 /***
 * Returns an array of pixels
 */
-pub trait Pixelize {
-    fn pixels(&self) -> Array2<Pixel>;
+pub trait Pixel {
+    fn pixels(&self) -> Array2<types::Pixel>;
 }
 
-/***
-* Can call show on the object to display a window
-*/
-/*
-pub trait SdlView {
-    type Updates;
-
-    /***
-     * Opens a window displaying the object
-     */
-    fn show(&self, sdl_context: &sdl2::Sdl, rx: Receiver<Self::Updates>) -> Result<(), String>;
-}
-*/
 /***
 * Can create a texture from the object
 */
-pub trait SdlTexturable {
+pub trait SdlTexture {
     fn texture<'b>(
         &self,
         texture_creator: &'b TextureCreator<WindowContext>,
