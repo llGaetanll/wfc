@@ -11,7 +11,7 @@ pub type BoundaryHash = u64;
 // this is effectively represented as [u8; 3]  in memory, but lets us implement a foreign trait on
 // it
 #[repr(transparent)]
-#[derive(Clone, Hash, Debug)]
+#[derive(Clone, Copy, Hash, Debug)]
 pub struct Pixel([u8; 3]);
 
 impl From<[u8; 3]> for Pixel {

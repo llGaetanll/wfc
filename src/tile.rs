@@ -49,6 +49,7 @@ where
     /// The hash of each side of the tile.
     /// Each tuple represents opposite sides on an axis of the tile.
     pub hashes: [[BitSet; 2]; N],
+    pub shape: usize,
 }
 
 impl<'a, T, const N: usize> Tile<'a, T, N>
@@ -66,22 +67,16 @@ where
             data,
             id: ArrayHash::hash(&data),
             hashes,
-        }
-    }
 
-    /***
-     * Return the shape of the tile
-     *
-     * Note: It is enforced that all axes of the tile be the same size.
-     */
-    pub fn shape(&self) -> usize {
-        self.data.shape()[0]
+            // assumption is that tiles are "square" in the general sense, for any dimension
+            shape: data.shape()[0]
+        }
     }
 }
 
 impl<'a> Pixel for Tile<'a, types::Pixel, 2> {
-    fn shape(&self) -> usize {
-        self.shape()
+    fn dims(&self) -> (usize, usize) {
+        self.data.dim()
     }
 
     /***
@@ -94,6 +89,8 @@ impl<'a> Pixel for Tile<'a, types::Pixel, 2> {
 
 // use default implementation
 impl<'a> SdlTexture for Tile<'a, types::Pixel, 2> {}
+
+impl<'a> crate::out::img::Image for Tile<'a, types::Pixel, 2> {}
 
 impl<'a> Tile<'a, types::Pixel, 2> {
     pub fn show(&self, sdl_context: &sdl2::Sdl) -> Result<(), String> {

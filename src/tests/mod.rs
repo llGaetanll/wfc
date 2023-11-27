@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use env_logger;
 use ndarray::Ix2;
 
+use crate::traits::SdlTexture;
+
 use crate::types::DimN;
 
 const TESTS_PATH: [&str; 3] = [".", "src", "tests"];
@@ -49,7 +51,9 @@ fn simple() {
     let mut wave = tileset.wave(params.wave_dims);
     wave.collapse(None);
 
-    wave.show(&sdl_context).expect("failed to display wave");
+    // wave.wave.get([3, 4]).unwrap().show(&sdl_context, "WaveTile", 100).expect("failed to display wavetile");
+
+    wave.show(&sdl_context, "Wave", 20).expect("failed to display wave");
 
     assert_eq!(false, true)
 }

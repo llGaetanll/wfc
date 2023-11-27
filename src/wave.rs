@@ -5,21 +5,16 @@ use std::time::SystemTime;
 use log::info;
 
 use ndarray::Array;
-use ndarray::Dim;
+use ndarray::Array2;
 use ndarray::Dimension;
 use ndarray::NdIndex;
 use ndarray::SliceArg;
 use ndarray::SliceInfo;
 use ndarray::SliceInfoElem;
 
-use sdl2::event::Event;
-use sdl2::image::InitFlag;
-use sdl2::keyboard::Keycode;
-use sdl2::rect::Rect;
-use sdl2::render::Texture;
-
 use bit_set::BitSet;
 
+use crate::ext::ndarray::ManhattanIter;
 use crate::tile::Tile;
 use crate::tileset::TileSet;
 
@@ -36,14 +31,13 @@ use super::wavetile::WaveTile;
 pub struct Wave<'a, T, const N: usize>
 where
     T: Hash + Sync + std::fmt::Debug,
-    Dim<[usize; N]>: Dimension, // ensures that [usize; N] is a Dimension implemented by ndarray
-    [usize; N]: NdIndex<Dim<[usize; N]>>, // ensures that any [usize; N] is a valid index into the nd array
+    DimN<N>: Dimension, // ensures that [usize; N] is a Dimension implemented by ndarray
+    [usize; N]: NdIndex<DimN<N>>, // ensures that any [usize; N] is a valid index into the nd array
 
     // ensures that `D` is such that `SliceInfo` implements the `SliceArg` type of it.
-    SliceInfo<Vec<SliceInfoElem>, Dim<[usize; N]>, <Dim<[usize; N]> as Dimension>::Smaller>:
-        SliceArg<Dim<[usize; N]>>,
+    SliceInfo<Vec<SliceInfoElem>, DimN<N>, <DimN<N> as Dimension>::Smaller>: SliceArg<DimN<N>>,
 {
-    pub wave: Array<WaveTile<'a, T, N>, Dim<[usize; N]>>,
+    pub wave: Array<WaveTile<'a, T, N>, DimN<N>>,
 
     // used to quickly compute diffs on wavetiles that have changed
     pub diffs: Array<bool, DimN<N>>,
@@ -52,18 +46,18 @@ where
     min_entropy: (usize, [usize; N]),
     max_entropy: (usize, [usize; N]),
 
-    pub shape: DimN<N>,
+    shape: DimN<N>,
+    tile_size: usize,
 }
 
 impl<'a, T, const N: usize> Wave<'a, T, N>
 where
     T: Hash + Sync + Send + std::fmt::Debug,
-    Dim<[usize; N]>: Dimension,
-    [usize; N]: NdIndex<Dim<[usize; N]>>,
+    DimN<N>: Dimension,
+    [usize; N]: NdIndex<DimN<N>>,
 
     // ensures that `D` is such that `SliceInfo` implements the `SliceArg` type of it.
-    SliceInfo<Vec<SliceInfoElem>, Dim<[usize; N]>, <Dim<[usize; N]> as Dimension>::Smaller>:
-        SliceArg<Dim<[usize; N]>>,
+    SliceInfo<Vec<SliceInfoElem>, DimN<N>, <DimN<N> as Dimension>::Smaller>: SliceArg<DimN<N>>,
 {
     pub fn new(shape: DimN<N>, tile_set: &'a TileSet<'a, T, N>) -> Self {
         let tiles = &tile_set.tiles;
@@ -76,6 +70,9 @@ where
 
         let num_tiles = tiles.len();
 
+        // the size of each tile
+        let tile_size = tiles.first().unwrap().shape;
+
         Wave {
             min_entropy: (num_tiles, [0; N]),
             max_entropy: (num_tiles, [0; N]),
@@ -84,7 +81,9 @@ where
                 WaveTile::new(tile_refs.clone(), wavetile_hashes.clone(), num_hashes)
             }),
             diffs: Array::from_shape_fn(shape, |_| false),
+
             shape,
+            tile_size
         }
     }
 
@@ -100,7 +99,7 @@ where
         // get starting index
         let index = match starting_index {
             Some(index) => index,
-            None => self.min_entropy.1
+            None => self.min_entropy.1,
         };
 
         // collapse the starting tile
@@ -189,6 +188,38 @@ where
                 max_idx = index;
             }
         };
+
+        let it = ManhattanIter::new(start, &self.wave);
+
+        // for index_group in it {
+        //     for index in index_group {
+        //         let neighbor_wavetiles = self.wave.neighbors(&index);
+        //         let neighbor_hashes: [[Option<BitSet>; 2]; N] = neighbor_wavetiles
+        //             .iter()
+        //             .enumerate()
+        //             .map(|(axis, [left, right])| {
+        //                 [
+        //                     left.map(|left| {
+        //                         let left: &[BitSet; 2] = &left.hashes[axis];
+        //                         left[1].clone()
+        //                     }),
+        //                     right.map(|right| {
+        //                         let right: &[BitSet; 2] = &right.hashes[axis];
+        //                         right[0].clone()
+        //                     }),
+        //                 ]
+        //             })
+        //             .collect::<Vec<_>>()
+        //             .try_into()
+        //             .unwrap();
+        //
+        //         self.diffs[index] = self.wave[index].update(neighbor_hashes);
+        //
+        //         // update entropy bounds
+        //         let entropy = self.wave[index].entropy;
+        //         upd_entropy(entropy, index);
+        //     }
+        // }
 
         for index_group in index_groups.into_iter() {
             for index in index_group.into_iter() {
@@ -376,122 +407,51 @@ where
     }
 }
 
-impl<'a> Wave<'a, types::Pixel, 2> {
-    pub fn show(&self, sdl_context: &sdl2::Sdl) -> Result<(), String> {
-        const TILE_SIZE: usize = 50;
+impl<'a> Pixel for Wave<'a, types::Pixel, 2> {
+    fn dims(&self) -> (usize, usize) {
+        // the width and height of a wave can differ
+        let (width, height) = self.shape.into_pattern();
+        let tile_size = self.tile_size;
 
-        // get the width and height of the wave window output
-        let [width, height]: [usize; 2] = self.wave.shape().try_into().unwrap();
-        let (win_width, win_height) = (width * TILE_SIZE, height * TILE_SIZE);
+        (width * tile_size, height * tile_size)
+    }
 
-        // init sdl
-        let video_subsystem = sdl_context.video()?;
-        let _image_context = sdl2::image::init(InitFlag::PNG | InitFlag::JPG)?;
-        let window = video_subsystem
-            .window(
-                "Wave Function Collapse",
-                win_width as u32,
-                win_height as u32,
-            )
-            .position_centered()
-            .build()
-            .map_err(|e| e.to_string())?;
+    fn pixels(&self) -> ndarray::Array2<types::Pixel> {
+        let (width, height) = self.dims();
+        let tile_size = self.tile_size;
 
-        let mut canvas = window
-            .into_canvas()
-            .software()
-            .build()
-            .map_err(|e| e.to_string())?;
+        let mut pixels: Array2<types::Pixel> =
+            Array2::from_shape_fn((width, height), |_| {
+                [0; 3].into()
+            });
 
-        let texture_creator = canvas.texture_creator();
+        for ((i, j), wavetile) in self.wave.indexed_iter() {
+            let wt_pixels = wavetile.pixels();
 
-        // thread::spawn(|| for updates in rx {});
-
-        // turn each tile into a texture to be loaded on the sdl canvas
-        let tile_textures = self
-            .wave
-            .iter()
-            .map(|wavetile| SdlTexture::texture(wavetile, &texture_creator))
-            .collect::<Vec<Result<Texture, String>>>();
-
-        // load every texture into the canvas, side by side
-        for (i, tile_texture) in tile_textures.iter().enumerate() {
-            canvas.copy(
-                tile_texture.as_ref().expect("texture error"),
-                None,
-                Rect::new(
-                    (i as i32 % width as i32) * TILE_SIZE as i32,
-                    (i as i32 / width as i32) * TILE_SIZE as i32,
-                    TILE_SIZE as u32,
-                    TILE_SIZE as u32,
-                ),
-            )?;
-        }
-
-        canvas.present();
-
-        'mainloop: loop {
-            for event in sdl_context.event_pump()?.poll_iter() {
-                match event {
-                    Event::Quit { .. }
-                    | Event::KeyDown {
-                        keycode: Option::Some(Keycode::Escape),
-                        ..
-                    } => break 'mainloop,
-                    _ => {}
-                }
+            for ((k, l), pixel) in wt_pixels.indexed_iter() {
+                let (x, y) = (i * tile_size + k, j * tile_size + l);
+                pixels[[x, y]] = *pixel;
             }
-
-            // sleep 1s to not overwhelm system resources
-            std::thread::sleep(std::time::Duration::from_secs(1));
         }
 
-        Ok(())
+        pixels
     }
 }
+
+// use default implementation
+impl<'a> SdlTexture for Wave<'a, types::Pixel, 2> {}
+
+impl<'a> crate::out::img::Image for Wave<'a, types::Pixel, 2> {}
 
 impl<'a, T, const N: usize> Debug for Wave<'a, T, N>
 where
     T: Hash + Sync + Send + std::fmt::Debug,
-    Dim<[usize; N]>: Dimension,
-    [usize; N]: NdIndex<Dim<[usize; N]>>,
+    DimN<N>: Dimension,
+    [usize; N]: NdIndex<DimN<N>>,
 
-    SliceInfo<Vec<SliceInfoElem>, Dim<[usize; N]>, <Dim<[usize; N]> as Dimension>::Smaller>:
-        SliceArg<Dim<[usize; N]>>,
+    SliceInfo<Vec<SliceInfoElem>, DimN<N>, <DimN<N> as Dimension>::Smaller>: SliceArg<DimN<N>>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self.wave)
-    }
-}
-
-impl<'a> Wave<'a, types::Pixel, 2> {
-    fn to_img(&mut self, index: usize)
-    where
-        [usize; 2]: NdIndex<DimN<2>>,
-    {
-        let wavetiles = &self.wave;
-
-        let (width, height) = self.shape.into_pattern();
-        let scaling: usize = 30;
-
-        let mut imgbuf =
-            image::ImageBuffer::new((width * scaling) as u32, (height * scaling) as u32);
-
-        for (_, wavetile) in wavetiles.iter().enumerate() {
-            let pixels = wavetile.pixels();
-
-            // Iterate over the coordinates and pixels of the image
-            for (x, y, pixel) in imgbuf.enumerate_pixels_mut() {
-                let x = x as usize / scaling;
-                let y = y as usize / scaling;
-
-                let px = pixels.get([x, y]).unwrap().to_owned();
-                *pixel = image::Rgb(px.into());
-            }
-        }
-
-        imgbuf
-            .save(format!("./assets/wave/wave-{index}.png"))
-            .unwrap();
     }
 }

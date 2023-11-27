@@ -169,7 +169,7 @@ where
     S: Data,
     DimN<N>: Dimension,
 {
-    fn neighbors(&'a self, index: [usize; N]) -> [[Option<&'a S::Elem>; 2]; N];
+    fn neighbors(&'a self, index: &'a [usize; N]) -> [[Option<&'a S::Elem>; 2]; N];
 }
 
 impl<'a, S, const N: usize> ArrayNeighbors<'a, S, N> for ArrayBase<S, DimN<N>>
@@ -179,7 +179,7 @@ where
 
     [usize; N]: NdIndex<DimN<N>>,
 {
-    fn neighbors(&'a self, index: [usize; N]) -> [[Option<&'a S::Elem>; 2]; N] {
+    fn neighbors(&'a self, index: &'a [usize; N]) -> [[Option<&'a S::Elem>; 2]; N] {
         let mut neighbors: [[Option<&'a S::Elem>; 2]; N] = from_fn(|_| [None; 2]);
 
         let shape = self.shape();
@@ -219,7 +219,7 @@ where
 {
     dist: usize,
     max_dist: usize,
-    start: [usize; N],
+    start: &'a [usize; N],
     data: &'a ArrayBase<S, DimN<N>>,
 }
 
@@ -228,7 +228,7 @@ where
     S: 'a + Data + RawData,
     DimN<N>: Dimension,
 {
-    pub fn new(start: [usize; N], data: &'a ArrayBase<S, DimN<N>>) -> Self {
+    pub fn new(start: &'a [usize; N], data: &'a ArrayBase<S, DimN<N>>) -> Self {
         let max_dist = Self::compute_max_dist(start, data.shape());
 
         ManhattanIter {
@@ -239,7 +239,7 @@ where
         }
     }
 
-    fn compute_max_dist(start: [usize; N], shape: &[usize]) -> usize {
+    fn compute_max_dist(start: &[usize; N], shape: &[usize]) -> usize {
         assert_eq!(shape.len(), N);
 
         // find all corner coordinates of the array
@@ -283,17 +283,17 @@ where
     // ensure that we can index into an N dimensional array using a [usize; N]
     [usize; N]: NdIndex<DimN<N>>,
 {
-    type Item = Vec<&'a S::Elem>;
+    type Item = Vec<[usize; N]>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.dist > self.max_dist {
             return None;
         }
 
-        let elements = util::man_dist(self.start, self.dist)
-            .into_iter()
-            .map(|i| &self.data[i])
-            .collect();
+        let elements = util::man_dist(self.start, self.dist);
+            // .into_iter()
+            // .map(|i| &self.data[i])
+            // .collect();
 
         self.dist += 1;
 
@@ -315,7 +315,7 @@ where
 }
 
 mod util {
-    pub fn man_dist<const N: usize>(p: [usize; N], dist: usize) -> Vec<[usize; N]> {
+    pub fn man_dist<const N: usize>(p: &[usize; N], dist: usize) -> Vec<[usize; N]> {
         // k is the index of p
         fn rec<const N: usize>(p: [isize; N], dist: isize, k: usize) -> Vec<[isize; N]> {
             if dist == 0 {

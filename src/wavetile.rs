@@ -56,7 +56,7 @@ where
         hashes: [[BitSet; 2]; N],
         num_hashes: usize,
     ) -> Self {
-        let shape = tiles[0].shape();
+        let shape = tiles[0].shape;
         let entropy = tiles.len();
 
         WaveTile {
@@ -250,8 +250,9 @@ where
 }
 
 impl<'a> Pixel for WaveTile<'a, types::Pixel, 2> {
-    fn shape(&self) -> usize {
-        self.shape
+    fn dims(&self) -> (usize, usize) {
+        // wavetiles are squares
+        (self.shape, self.shape)
     }
 
     fn pixels(&self) -> Array2<types::Pixel> {
@@ -295,6 +296,8 @@ impl<'a> Pixel for WaveTile<'a, types::Pixel, 2> {
 
 // use default implementation
 impl<'a> SdlTexture for WaveTile<'a, types::Pixel, 2> {}
+
+impl<'a> crate::out::img::Image for WaveTile<'a, types::Pixel, 2> {}
 
 impl<'a, T, const N: usize> Debug for WaveTile<'a, T, N>
 where
