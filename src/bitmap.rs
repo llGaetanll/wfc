@@ -58,7 +58,7 @@ pub fn from_image(
         .pixels()
         .map(|p| p.2.to_rgb().0.into())
         .collect::<Array<_, _>>()
-        .into_shape((width as usize, height as usize))
+        .into_shape((width, height))
         .unwrap();
 
     // create a cubic window of side length `size`
@@ -130,12 +130,9 @@ where
 
             // add all unique hashes to an index map
             for &hash in hashes.iter().flat_map(|h| h.iter()) {
-                match unique_hashes.entry(hash) {
-                    Entry::Vacant(v) => {
-                        v.insert(hash_index);
-                        hash_index += 1;
-                    }
-                    _ => {}
+                if let Entry::Vacant(v) = unique_hashes.entry(hash) {
+                    v.insert(hash_index);
+                    hash_index += 1;
                 }
             }
         }

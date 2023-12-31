@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::pin::Pin;
 
 use ndarray::Dimension;
 use ndarray::NdIndex;
@@ -32,7 +33,7 @@ where
 
     SliceInfo<Vec<SliceInfoElem>, DimN<N>, <DimN<N> as Dimension>::Smaller>: SliceArg<DimN<N>>,
 {
-    pub fn wave(&'a self, shape: DimN<N>) -> Wave<'a, T, N> {
+    pub fn wave(&'a self, shape: DimN<N>) -> Pin<Box<Wave<'a, T, N>>> {
         Wave::new(shape, self)
     }
 }

@@ -33,7 +33,7 @@ pub trait SdlTexture: Pixel {
         let mut flat_pixels: Vec<u8> = self
             .pixels()
             .into_iter()
-            .flat_map(|pixel| pixel.into_iter().map(|p| p))
+            .flat_map(|pixel| pixel.into_iter())
             .collect();
 
         // create a surface from the flat pixels vector

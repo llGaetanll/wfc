@@ -1,22 +1,25 @@
+use std::array::from_fn;
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::pin::Pin;
 use std::time::SystemTime;
 
 use log::info;
 
 use ndarray::Array;
 use ndarray::Array2;
+use ndarray::ArrayBase;
 use ndarray::Dimension;
 use ndarray::NdIndex;
 use ndarray::SliceArg;
 use ndarray::SliceInfo;
 use ndarray::SliceInfoElem;
 
-use bit_set::BitSet;
-
-use crate::ext::ndarray::ManhattanIter;
 use crate::tile::Tile;
 use crate::tileset::TileSet;
+use bit_set::BitSet;
+
+use self::util::WaveArrayExt;
 
 use super::traits::Pixel;
 use super::traits::SdlTexture;
@@ -39,9 +42,6 @@ where
 {
     pub wave: Array<WaveTile<'a, T, N>, DimN<N>>,
 
-    // used to quickly compute diffs on wavetiles that have changed
-    pub diffs: Array<bool, DimN<N>>,
-
     // cached to speed up propagate
     min_entropy: (usize, [usize; N]),
     max_entropy: (usize, [usize; N]),
@@ -59,10 +59,10 @@ where
     // ensures that `D` is such that `SliceInfo` implements the `SliceArg` type of it.
     SliceInfo<Vec<SliceInfoElem>, DimN<N>, <DimN<N> as Dimension>::Smaller>: SliceArg<DimN<N>>,
 {
-    pub fn new(shape: DimN<N>, tile_set: &'a TileSet<'a, T, N>) -> Self {
+    pub fn new(shape: DimN<N>, tile_set: &'a TileSet<'a, T, N>) -> Pin<Box<Self>> {
         let tiles = &tile_set.tiles;
 
-        let tile_refs: Vec<&'a Tile<'a, T, N>> = tiles.iter().map(|tile| tile).collect();
+        let tile_refs: Vec<&'a Tile<'a, T, N>> = tiles.iter().collect();
         let tile_hashes: Vec<&[[BitSet; 2]; N]> = tiles.iter().map(|tile| &tile.hashes).collect();
 
         let num_hashes = tile_set.hashes.len();
@@ -73,22 +73,82 @@ where
         // the size of each tile
         let tile_size = tiles.first().unwrap().shape;
 
-        Wave {
+        let wave = Wave {
             min_entropy: (num_tiles, [0; N]),
             max_entropy: (num_tiles, [0; N]),
 
             wave: Array::from_shape_fn(shape, |_| {
                 WaveTile::new(tile_refs.clone(), wavetile_hashes.clone(), num_hashes)
             }),
-            diffs: Array::from_shape_fn(shape, |_| false),
 
             shape,
-            tile_size
+            tile_size,
+        };
+
+        // we must put our wave in a pinned box to ensure that its contents are not moved.
+        let mut wave = Box::pin(wave);
+
+        // for each WaveTile, we need to get a list of pointers to its neighbors. This is why we
+        // pinned the box.
+
+        let get_wavetile_neighbor_bitsets = |index: usize| -> [[Option<*const BitSet>; 2]; N] {
+            let index = wave.wave.get_nd_index(index);
+            let neighbor_indices = wave.wave.get_index_neighbors(index);
+
+            let neighbor_bitsets: [[Option<*const BitSet>; 2]; N] = neighbor_indices
+                .iter()
+                .enumerate()
+                .map(|(axis, [left, right])| {
+                    [
+                        left.map(|index| {
+                            let wavetile_left = &wave.wave[index];
+                            let bitsets: &[BitSet; 2] = &wavetile_left.hashes[axis];
+                            let bitset_right: *const BitSet = &bitsets[1];
+                            bitset_right
+                        }),
+                        right.map(|index| {
+                            let wavetile_right = &wave.wave[index];
+                            let bitsets: &[BitSet; 2] = &wavetile_right.hashes[axis];
+                            let bitset_left: *const BitSet = &bitsets[0];
+                            bitset_left
+                        }),
+                    ]
+                })
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap();
+
+            neighbor_bitsets
+        };
+
+        // the complete list of all neighbor bitset pointers for each wavetile of the wave
+        let wavetile_bitsets_neighbors: Vec<[[Option<*const BitSet>; 2]; N]> = (0..wave.wave.len())
+            .map(get_wavetile_neighbor_bitsets)
+            .collect();
+
+        // 2. Assign the pointers
+        // NOTE: we HAD to do this in two steps.
+        //
+        //      The first was to get the pointers to the neighbors of each WaveTile. We needed an
+        //      immutable reference to wave.wave to do this, since we needed to traverse it.
+        //
+        //      The second is to mutate the wave which we are doing now. Remember that, without
+        //      interior mutability, we can't mutate a WaveTile in the Wave without updating the
+        //      Wave itself. But this requires a mutable reference to wave.wave, hence it must be
+        //      done independently from the pointer collection step.
+        for (wavetile, neighbor_bitsets) in wave
+            .wave
+            .iter_mut()
+            .zip(wavetile_bitsets_neighbors.into_iter())
+        {
+            wavetile.neighbor_hashes = neighbor_bitsets;
         }
+
+        wave
     }
 
     /// Collapses the wave
-    pub fn collapse(&mut self, starting_index: Option<[usize; N]>) {
+    pub fn collapse(&mut self, starting_index: Option<util::NdIndex<N>>) {
         let t0 = SystemTime::now();
 
         // if the wave is fully collapsed
@@ -107,10 +167,9 @@ where
             info!("collapsing {:?}", index);
             let wavetile = &mut self.wave[index];
             wavetile.collapse();
-            self.diffs[index] = true;
         }
 
-        self.propagate(&index);
+        self.propagate(index);
 
         // handle the rest of the wave
         loop {
@@ -119,15 +178,13 @@ where
             };
 
             {
-                // let (index, _) = self.min_entropy();
                 let index = self.min_entropy.1;
                 info!("collapsing {:?}", index);
                 let wavetile = &mut self.wave[index];
                 wavetile.collapse();
-                self.diffs[index] = true;
             }
 
-            self.propagate(&index);
+            self.propagate(index);
         }
 
         let t1 = SystemTime::now();
@@ -141,9 +198,7 @@ where
         capacity: usize,
     ) -> [[BitSet; 2]; N] {
         let mut hashes: [[BitSet; 2]; N] =
-            vec![vec![BitSet::with_capacity(capacity); 2].try_into().unwrap(); N]
-                .try_into()
-                .unwrap();
+            from_fn(|_| from_fn(|_| BitSet::with_capacity(capacity)));
 
         let or_bitsets = |main: &mut [[BitSet; 2]; N], other: &[[BitSet; 2]; N]| {
             main.iter_mut().zip(other.iter()).for_each(
@@ -164,18 +219,11 @@ where
     /// Propagates the wave from an index `start`
     /// TODO:
     ///  - stop propagation if neighboring tiles haven't updated
-    ///  - currently, a wavetile looks at all of its neighbors, but it only needs to look at a
-    ///  subset of those: the ones closer to the center of the wave.
-    fn propagate(&mut self, start: &[usize; N]) {
+    fn propagate(&mut self, start: util::NdIndex<N>) {
         let t0 = SystemTime::now();
-        let mut skips = 0;
 
-        let index_groups = self.get_index_groups(start);
-
-        // println!("{:?}", self.diffs);
-
-        let (mut min_entropy, mut min_idx) = (usize::MAX, self.min_entropy.1.clone());
-        let (mut max_entropy, mut max_idx) = (0, self.max_entropy.1.clone());
+        let (mut min_entropy, mut min_idx) = (usize::MAX, self.min_entropy.1);
+        let (mut max_entropy, mut max_idx) = (0, self.max_entropy.1);
 
         let mut upd_entropy = |entropy, index| {
             if entropy > 1 && entropy < min_entropy {
@@ -189,101 +237,12 @@ where
             }
         };
 
-        let it = ManhattanIter::new(start, &self.wave);
-
-        // for index_group in it {
-        //     for index in index_group {
-        //         let neighbor_wavetiles = self.wave.neighbors(&index);
-        //         let neighbor_hashes: [[Option<BitSet>; 2]; N] = neighbor_wavetiles
-        //             .iter()
-        //             .enumerate()
-        //             .map(|(axis, [left, right])| {
-        //                 [
-        //                     left.map(|left| {
-        //                         let left: &[BitSet; 2] = &left.hashes[axis];
-        //                         left[1].clone()
-        //                     }),
-        //                     right.map(|right| {
-        //                         let right: &[BitSet; 2] = &right.hashes[axis];
-        //                         right[0].clone()
-        //                     }),
-        //                 ]
-        //             })
-        //             .collect::<Vec<_>>()
-        //             .try_into()
-        //             .unwrap();
-        //
-        //         self.diffs[index] = self.wave[index].update(neighbor_hashes);
-        //
-        //         // update entropy bounds
-        //         let entropy = self.wave[index].entropy;
-        //         upd_entropy(entropy, index);
-        //     }
-        // }
-
+        let index_groups = self.wave.get_index_groups(start);
         for index_group in index_groups.into_iter() {
             for index in index_group.into_iter() {
-                let neighbor_indices = self.compute_neighbors(&index);
-
-                let skip = !neighbor_indices.iter().any(|(left, right)| {
-                    left.map_or(false, |idx| self.diffs[idx])
-                        || right.map_or(false, |idx| self.diffs[idx])
-                });
-
-                if skip {
-                    // if we get to skip the current tile, it's elligible for entropy check
-                    let entropy = self.wave[index].entropy;
-                    upd_entropy(entropy, index);
-
-                    skips += 1;
-                    continue;
-                }
-
-                let neighbor_indices = self.compute_neighbors(&index);
-
-                // debug!(
-                //     "Propagate [{:?}] - neighbor indices: {:?}",
-                //     index, neighbor_indices
-                // );
-
-                // note that if a `WaveTile` is on the edge of the wave, it might not have all its
-                // neighbors. This also depends on the wrapping logic chosen
-                let neighbor_hashes: [[Option<BitSet>; 2]; N] = neighbor_indices
-                    .into_iter()
-                    .enumerate()
-                    .map(|(axis, (left, right))| {
-                        let left = left
-                            // .filter(|&idx| self.diffs[idx])
-                            .map(|idx| {
-                                let wavetile = &self.wave[idx];
-                                let hashes: &[BitSet; 2] = &wavetile.hashes[axis];
-                                hashes[1].clone()
-                            });
-
-                        let right = right
-                            // .filter(|&idx| self.diffs[idx])
-                            .map(|idx| {
-                                let wavetile = &self.wave[idx];
-                                let hashes: &[BitSet; 2] = &wavetile.hashes[axis];
-                                hashes[0].clone()
-                            });
-
-                        [left, right]
-                    })
-                    .collect::<Vec<_>>()
-                    .try_into()
-                    .unwrap();
-
-                // debug!(
-                //     "Propagate [{:?}] - neighbor hashes: {:?}",
-                //     index, neighbor_hashes
-                // );
-
-                // debug!("updating {:?}", index);
-
-                // TODO: catch if a wavetile has no more options at this stage instead of on
-                // collapse?
-                self.diffs[index] = self.wave[index].update(neighbor_hashes);
+                // TODO: catch if a wavetile has no more options
+                // at this stage instead of on collapse?
+                self.wave[index].update();
 
                 // update entropy bounds
                 let entropy = self.wave[index].entropy;
@@ -295,115 +254,9 @@ where
         self.min_entropy = (min_entropy, min_idx);
         self.max_entropy = (max_entropy, max_idx);
 
-        // reset diffs
-        Array::fill(&mut self.diffs, false);
-
         let t1 = SystemTime::now();
 
-        info!(
-            "Propagate in {:?}. Total skips: {}",
-            t1.duration_since(t0).unwrap(),
-            skips
-        );
-    }
-
-    /// TODO: doesn't really belong in wave..
-    /// compute an nd index from a given index and the local strides
-    fn compute_nd_index(flat_index: usize, strides: &[isize]) -> [usize; N] {
-        let mut nd_index: Vec<usize> = Vec::new();
-
-        strides.iter().fold(flat_index, |idx_remain, &stride| {
-            let stride = stride as usize;
-            nd_index.push(idx_remain / stride);
-            idx_remain % stride
-        });
-
-        // safe since we fold on stride and |stride| == N
-        nd_index.try_into().unwrap()
-    }
-
-    /// Given a `starting_index`, this function computes a list A where
-    /// A[i] is a list of ND indices B, where for all b in B
-    ///
-    ///    manhattan_dist(b, starting_index) = i
-    ///
-    /// This is used to be able to parallelize the wave propagation step.
-    fn get_index_groups(&self, starting_index: &[usize; N]) -> Vec<Vec<[usize; N]>> {
-        let strides = self.wave.strides();
-
-        // compute manhattan distance between `start` and `index`
-        let manhattan_dist = |index: &[usize; N]| -> usize {
-            starting_index
-                .iter()
-                .zip(index.iter())
-                .map(|(&a, &b)| ((a as isize) - (b as isize)).abs() as usize)
-                .sum()
-        };
-
-        // compute the tile farthest away from the starting index
-        // this gives us the number of index groups B are in our wave given the `starting_index`
-        let max_manhattan_dist = self
-            .wave
-            .iter()
-            .enumerate()
-            .map(|(i, _)| Self::compute_nd_index(i, strides))
-            .map(|nd_index| manhattan_dist(&nd_index))
-            .max()
-            .unwrap();
-
-        let mut index_groups: Vec<Vec<[usize; N]>> = vec![Vec::new(); max_manhattan_dist];
-
-        for (index, _) in self.wave.iter().enumerate() {
-            let nd_index = Self::compute_nd_index(index, strides);
-            let dist = manhattan_dist(&nd_index);
-
-            if dist == 0 {
-                continue;
-            }
-
-            index_groups[dist - 1].push(nd_index);
-        }
-
-        index_groups
-    }
-
-    /// For a given `index`, computes all the neighbors of that index
-    fn compute_neighbors(
-        &self,
-        index: &[usize; N],
-    ) -> [(Option<[usize; N]>, Option<[usize; N]>); N] {
-        // what's amazing here is that we always have as many neighbor pairs as we have dimensions!
-        let mut neighbors: [(Option<[usize; N]>, Option<[usize; N]>); N] = [(None, None); N];
-
-        let shape = self.wave.shape();
-        let ndim = self.wave.ndim();
-
-        for axis in 0..ndim {
-            // min and max indices on the current axis
-            let (min_bd, max_bd) = (0, shape[axis]);
-            let range = min_bd..max_bd;
-
-            // compute the left and right neighbors on that axis
-            let mut axis_neighbors: [Option<[usize; N]>; 2] = [None; 2];
-            for (i, delta) in [-1isize, 1isize].iter().enumerate() {
-                let axis_index = ((index[axis] as isize) + delta) as usize;
-
-                let mut axis_neighbor: Option<[usize; N]> = None;
-
-                if range.contains(&axis_index) {
-                    let mut neighbor_axis_index = index.clone();
-                    neighbor_axis_index[axis] = axis_index;
-                    axis_neighbor = Some(neighbor_axis_index);
-                }
-
-                axis_neighbors[i] = axis_neighbor;
-            }
-
-            let axis_neighbors: (Option<[usize; N]>, Option<[usize; N]>) = axis_neighbors.into();
-            neighbors[axis] = axis_neighbors;
-        }
-
-        neighbors
+        info!("Propagate in {:?}", t1.duration_since(t0).unwrap());
     }
 }
 
@@ -421,9 +274,7 @@ impl<'a> Pixel for Wave<'a, types::Pixel, 2> {
         let tile_size = self.tile_size;
 
         let mut pixels: Array2<types::Pixel> =
-            Array2::from_shape_fn((width, height), |_| {
-                [0; 3].into()
-            });
+            Array2::from_shape_fn((width, height), |_| [0; 3].into());
 
         for ((i, j), wavetile) in self.wave.indexed_iter() {
             let wt_pixels = wavetile.pixels();
@@ -453,5 +304,104 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self.wave)
+    }
+}
+
+mod util {
+    pub type FlatIndex = usize;
+    pub type NdIndex<const N: usize> = [usize; N];
+    pub type NeighborIndices<const N: usize> = [[Option<NdIndex<N>>; 2]; N];
+
+    pub trait WaveArrayExt<const N: usize> {
+        fn get_nd_index(&self, flat_index: FlatIndex) -> NdIndex<N>;
+        fn get_index_groups(&self, start: NdIndex<N>) -> Vec<Vec<NdIndex<N>>>;
+        fn get_index_neighbors(&self, index: NdIndex<N>) -> NeighborIndices<N>;
+    }
+}
+
+impl<S, const N: usize> util::WaveArrayExt<N> for ArrayBase<S, DimN<N>>
+where
+    DimN<N>: ndarray::Dimension,
+    S: ndarray::Data,
+{
+    /// Converts a flat index into an NdIndex
+    fn get_nd_index(&self, flat_index: util::FlatIndex) -> util::NdIndex<N> {
+        let strides = self.strides();
+
+        let mut nd_index: [usize; N] = [0; N];
+        let mut idx_remain = flat_index;
+
+        // safe because |strides| == N
+        unsafe {
+            for (i, stride) in strides.iter().enumerate() {
+                let stride = *stride as usize;
+                let idx = nd_index.get_unchecked_mut(i); // will not fail
+                *idx = idx_remain / stride;
+                idx_remain %= stride;
+            }
+        }
+
+        nd_index
+    }
+
+    /// Computes all the Manhattan distance groups
+    fn get_index_groups(&self, start: util::NdIndex<N>) -> Vec<Vec<util::NdIndex<N>>> {
+        // compute manhattan distance between `start` and `index`
+        let manhattan_dist = |index: util::NdIndex<N>| -> usize {
+            start
+                .iter()
+                .zip(index.iter())
+                .map(|(&a, &b)| ((a as isize) - (b as isize)).unsigned_abs())
+                .sum()
+        };
+
+        // compute the tile farthest away from the starting index
+        // this gives us the number of index groups B are in our wave given the `starting_index`
+        let max_manhattan_dist = self
+            .iter()
+            .enumerate()
+            .map(|(i, _)| manhattan_dist(self.get_nd_index(i)))
+            .max()
+            .unwrap();
+
+        let mut index_groups: Vec<Vec<util::NdIndex<N>>> = vec![Vec::new(); max_manhattan_dist];
+
+        for (index, _) in self.iter().enumerate() {
+            let nd_index = self.get_nd_index(index);
+            let dist = manhattan_dist(nd_index);
+
+            if dist == 0 {
+                continue;
+            }
+
+            index_groups[dist - 1].push(nd_index);
+        }
+
+        index_groups
+    }
+
+    /// For a given NdIndex, returns the list of all the neighbors of that index
+    fn get_index_neighbors(&self, index: util::NdIndex<N>) -> util::NeighborIndices<N> {
+        let shape = self.shape();
+
+        from_fn(|axis| {
+            let left = if index[axis] == 0 {
+                None
+            } else {
+                let mut left = index;
+                left[axis] -= 1;
+                Some(left)
+            };
+
+            let right = if index[axis] == shape[axis] - 1 {
+                None
+            } else {
+                let mut right = index;
+                right[axis] += 1;
+                Some(right)
+            };
+
+            [left, right]
+        })
     }
 }

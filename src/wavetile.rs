@@ -1,3 +1,4 @@
+use std::array::from_fn;
 use std::fmt::Debug;
 use std::hash::Hash;
 
@@ -35,6 +36,7 @@ where
 
     num_hashes: usize,
     pub hashes: [[BitSet; 2]; N],
+    pub neighbor_hashes: [[Option<*const BitSet>; 2]; N],
 
     /// computed as the number of valid tiles
     pub entropy: usize,
@@ -64,6 +66,7 @@ where
             filtered_tiles: Vec::new(),
             num_hashes,
             hashes,
+            neighbor_hashes: [[None; 2]; N],
             entropy,
             shape,
         }
@@ -103,7 +106,6 @@ where
             .possible_tiles
             .drain(..)
             .enumerate()
-            // TODO: is filter_map necessary here??
             .filter_map(|(i, tile)| if i != idx { Some(tile) } else { None })
             .collect();
 
@@ -134,37 +136,37 @@ where
     }
 
     /// Update the `possible_tiles` of the current `WaveTile` given a list of neighbors.
-    ///
-    /// returns whether the wavetile has changed
-    pub fn update(&mut self, neighbor_hashes: [[Option<BitSet>; 2]; N]) -> bool {
+    pub fn update(&mut self) {
+        let neighbor_hashes = self.neighbor_hashes;
+
         let same_neighbors = neighbor_hashes
             .iter()
             .all(|[left, right]| left.is_none() && right.is_none());
 
         if self.entropy < 2 {
-            return true;
+            return;
         }
 
         if same_neighbors {
-            return true;
+            return;
         }
 
-        let hashes: [[BitSet; 2]; N] = vec![
-            vec![BitSet::with_capacity(self.num_hashes); 2]
-                .try_into()
-                .unwrap();
-            N
-        ]
-        .try_into()
-        .unwrap();
+        let hashes: [[BitSet; 2]; N] =
+            from_fn(|_| from_fn(|_| BitSet::with_capacity(self.num_hashes)));
 
-        debug!(
-            "Neighbor hash sizes: {:?}",
-            neighbor_hashes
-                .iter()
-                .map(|[l, r]| [l.as_ref().map(|l| l.len()), r.as_ref().map(|r| r.len())])
-                .collect::<Vec<_>>()
-        );
+        // safe because Wave is pinned
+        unsafe {
+            debug!(
+                "Neighbor hash sizes: {:?}",
+                neighbor_hashes
+                    .iter()
+                    .map(|[l, r]| [
+                        l.as_ref().map(|&l| (*l).len()),
+                        r.as_ref().map(|&r| (*r).len())
+                    ])
+                    .collect::<Vec<_>>()
+            );
+        }
 
         // owned copy of the self.hashes
         let mut hashes = std::mem::replace(&mut self.hashes, hashes);
@@ -182,11 +184,17 @@ where
             hashes.iter_mut().zip(neighbor_hashes.iter())
         {
             if let Some(hashes) = neighbor_right {
-                self_left.intersect_with(hashes);
+                // safe because wave is pinned
+                unsafe {
+                    self_left.intersect_with(&**hashes);
+                }
             }
 
             if let Some(hashes) = neighbor_left {
-                self_right.intersect_with(hashes);
+                // safe because wave is pinned
+                unsafe {
+                    self_right.intersect_with(&**hashes);
+                }
             }
         }
 
@@ -226,11 +234,7 @@ where
 
         self.possible_tiles = valid_tiles;
         self.filtered_tiles.push(invalid_tiles);
-
-        let old_entropy = self.entropy;
-        let new_entropy = self.possible_tiles.len();
-
-        self.entropy = new_entropy;
+        self.entropy = self.possible_tiles.len();
 
         // NOTE: mutates self's hashes
         self.update_hashes();
@@ -242,10 +246,6 @@ where
                 .map(|[l, r]| [l.len(), r.len()])
                 .collect::<Vec<_>>()
         );
-
-        // old_entropy != new_entropy;
-
-        true
     }
 }
 

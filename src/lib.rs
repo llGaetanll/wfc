@@ -1,5 +1,7 @@
+#[cfg(test)]
 pub mod tests;
-pub mod bench;
+
+pub mod benches;
 pub mod out;
 
 pub mod traits;

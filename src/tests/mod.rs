@@ -45,15 +45,22 @@ fn simple() {
 
     let sdl_context = sdl2::init().expect("failed to init sdl2 context");
 
-    let bitmap = crate::from_image(&params.img_path, params.window_size, true, true).expect("failed to create bitmap");
+    let bitmap = crate::from_image(&params.img_path, params.window_size, true, true)
+        .expect("failed to create bitmap");
     let tileset = bitmap.tile_set();
 
+    // thread::spawn(|| {}).join().expect("thread join failed");
+
     let mut wave = tileset.wave(params.wave_dims);
+
+    // wave.attach(&sdl_context, "Wave", 20).collapse(None);
+
     wave.collapse(None);
 
     // wave.wave.get([3, 4]).unwrap().show(&sdl_context, "WaveTile", 100).expect("failed to display wavetile");
 
-    wave.show(&sdl_context, "Wave", 20).expect("failed to display wave");
+    wave.show(&sdl_context, "Wave", 20)
+        .expect("failed to display wave");
 
     assert_eq!(false, true)
 }

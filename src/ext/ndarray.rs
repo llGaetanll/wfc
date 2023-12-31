@@ -74,7 +74,7 @@ where
     fn hash(&self) -> TileHash {
         let mut s = DefaultHasher::new();
 
-        <ArrayBase<S, DimN<N>> as Hash>::hash(&self, &mut s);
+        <ArrayBase<S, DimN<N>> as Hash>::hash(self, &mut s);
 
         s.finish()
     }
@@ -121,15 +121,12 @@ where
         // maps the boundary hash to an index
         let mut hash_index: usize = 0;
         let mut unique_hashes: HashMap<BoundaryHash, usize> = HashMap::new();
-        let mut tile_hashes: [[BoundaryHash; 2]; N] = [[0; 2]; N];
-
-        // for each axis
-        for n in 0..N {
+        let tile_hashes: [[BoundaryHash; 2]; N] = from_fn(|axis| {
             // front slice of the current axis
-            let front = make_slice(n, 0);
+            let front = make_slice(axis, 0);
 
             // back slice of the current axis
-            let back = make_slice(n, -1);
+            let back = make_slice(axis, -1);
 
             // slice the array on each axis
             let front_slice = self.slice(front);
@@ -156,9 +153,8 @@ where
                 Entry::Occupied(_) => {}
             }
 
-            // add to hash list
-            tile_hashes[n] = [front_hash, back_hash];
-        }
+            [front_hash, back_hash]
+        });
 
         tile_hashes
     }
@@ -169,7 +165,7 @@ where
     S: Data,
     DimN<N>: Dimension,
 {
-    fn neighbors(&'a self, index: &'a [usize; N]) -> [[Option<&'a S::Elem>; 2]; N];
+    fn neighbors<'b>(&'a self, index: &'b [usize; N]) -> [[Option<&'a S::Elem>; 2]; N];
 }
 
 impl<'a, S, const N: usize> ArrayNeighbors<'a, S, N> for ArrayBase<S, DimN<N>>
@@ -179,7 +175,7 @@ where
 
     [usize; N]: NdIndex<DimN<N>>,
 {
-    fn neighbors(&'a self, index: &'a [usize; N]) -> [[Option<&'a S::Elem>; 2]; N] {
+    fn neighbors<'b>(&'a self, index: &'b [usize; N]) -> [[Option<&'a S::Elem>; 2]; N] {
         let mut neighbors: [[Option<&'a S::Elem>; 2]; N] = from_fn(|_| [None; 2]);
 
         let shape = self.shape();
@@ -187,7 +183,7 @@ where
         // TODO: allow more wrapping techniques for indices
         for d in 0..N {
             let left = if index[d] > 0 {
-                let mut index = index.clone();
+                let mut index = *index;
                 index[d] -= 1;
                 Some(&self[index])
             } else {
@@ -195,7 +191,7 @@ where
             };
 
             let right = if index[d] < shape[d] - 1 {
-                let mut index = index.clone();
+                let mut index = *index;
                 index[d] += 1;
                 Some(&self[index])
             } else {
@@ -212,34 +208,33 @@ where
 /// An iterator over an `A: ArrayBase<S, D>` that takes a starting point `start` and produces
 /// elements of type `Vec<S::Elem>` where index `i` is all entries of the array with Manhattan
 /// distance `i` from the starting point `start`. Used internally in propagate.
-pub struct ManhattanIter<'a, S, const N: usize>
+pub struct ManhattanIter<const N: usize>
 where
-    S: Data + RawData,
     DimN<N>: Dimension,
 {
     dist: usize,
     max_dist: usize,
-    start: &'a [usize; N],
-    data: &'a ArrayBase<S, DimN<N>>,
+    start: [usize; N],
 }
 
-impl<'a, S, const N: usize> ManhattanIter<'a, S, N>
+impl<const N: usize> ManhattanIter<N>
 where
-    S: 'a + Data + RawData,
     DimN<N>: Dimension,
 {
-    pub fn new(start: &'a [usize; N], data: &'a ArrayBase<S, DimN<N>>) -> Self {
+    pub fn new<S>(start: [usize; N], data: &ArrayBase<S, DimN<N>>) -> Self
+    where
+        S: Data + RawData,
+    {
         let max_dist = Self::compute_max_dist(start, data.shape());
 
         ManhattanIter {
             start,
             max_dist,
             dist: 0,
-            data,
         }
     }
 
-    fn compute_max_dist(start: &[usize; N], shape: &[usize]) -> usize {
+    fn compute_max_dist(start: [usize; N], shape: &[usize]) -> usize {
         assert_eq!(shape.len(), N);
 
         // find all corner coordinates of the array
@@ -254,7 +249,7 @@ where
             corners.extend(new_corners.into_iter());
         }
 
-        let dist = |p: &[usize; N]| Self::dist(&start, p);
+        let dist = |p: &[usize; N]| Self::dist(start, *p);
 
         // find the farthest corner from the starting point
         let far_corner = corners
@@ -267,7 +262,7 @@ where
     }
 
     // compute the manhattan distance between two points
-    fn dist(a: &[usize; N], b: &[usize; N]) -> usize {
+    fn dist(a: [usize; N], b: [usize; N]) -> usize {
         a.iter()
             .zip(b.iter())
             .map(|(ai, bi)| if ai > bi { ai - bi } else { bi - ai })
@@ -275,9 +270,8 @@ where
     }
 }
 
-impl<'a, S, const N: usize> Iterator for ManhattanIter<'a, S, N>
+impl<const N: usize> Iterator for ManhattanIter<N>
 where
-    S: Data + RawData,
     DimN<N>: Dimension,
 
     // ensure that we can index into an N dimensional array using a [usize; N]
@@ -291,9 +285,6 @@ where
         }
 
         let elements = util::man_dist(self.start, self.dist);
-            // .into_iter()
-            // .map(|i| &self.data[i])
-            // .collect();
 
         self.dist += 1;
 
@@ -301,9 +292,8 @@ where
     }
 }
 
-impl<'a, S, const N: usize> ExactSizeIterator for ManhattanIter<'a, S, N>
+impl<const N: usize> ExactSizeIterator for ManhattanIter<N>
 where
-    S: Data + RawData,
     DimN<N>: Dimension,
 
     // ensure that we can index into an N dimensional array using a [usize; N]
@@ -315,7 +305,7 @@ where
 }
 
 mod util {
-    pub fn man_dist<const N: usize>(p: &[usize; N], dist: usize) -> Vec<[usize; N]> {
+    pub fn man_dist<const N: usize>(p: [usize; N], dist: usize) -> Vec<[usize; N]> {
         // k is the index of p
         fn rec<const N: usize>(p: [isize; N], dist: isize, k: usize) -> Vec<[isize; N]> {
             if dist == 0 {
@@ -324,8 +314,8 @@ mod util {
 
             // the last coordinate is different. We have 0 degrees of freedom
             if k == N - 1 {
-                let mut left = p.clone();
-                let mut right = p.clone();
+                let mut left = p;
+                let mut right = p;
 
                 left[k] -= dist;
                 right[k] += dist;
@@ -335,7 +325,7 @@ mod util {
 
             let mut indices = Vec::new();
             for d in (-dist)..=dist {
-                let mut p = p.clone();
+                let mut p = p;
 
                 p[k] += d;
 
