@@ -1,6 +1,3 @@
-#[cfg(test)]
-pub mod tests;
-
 pub mod benches;
 pub mod out;
 

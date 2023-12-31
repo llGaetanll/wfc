@@ -1,13 +1,10 @@
 use std::path::PathBuf;
 
-use env_logger;
+use wfc::traits::SdlTexture;
+
 use ndarray::Ix2;
 
-use crate::traits::SdlTexture;
-
-use crate::types::DimN;
-
-const TESTS_PATH: [&str; 3] = [".", "src", "tests"];
+const TESTS_PATH: [&str; 2] = [".", "tests"];
 const ASSETS_DIR: &str = "assets";
 
 fn img_path(img: &str) -> PathBuf {
@@ -15,12 +12,6 @@ fn img_path(img: &str) -> PathBuf {
     let assets_path = tests_path.join(ASSETS_DIR);
 
     assets_path.join(img)
-}
-
-struct Params<const N: usize> {
-    img_path: PathBuf,
-    window_size: usize,
-    wave_dims: DimN<N>,
 }
 
 fn init_logger() {
@@ -37,28 +28,15 @@ fn init_logger() {
 fn simple() {
     init_logger();
 
-    let params = Params {
-        img_path: img_path("sample.png"),
-        window_size: 3,
-        wave_dims: Ix2(10, 10),
-    };
-
     let sdl_context = sdl2::init().expect("failed to init sdl2 context");
 
-    let bitmap = crate::from_image(&params.img_path, params.window_size, true, true)
+    let bitmap = wfc::from_image(&img_path("sample.png"), 3, true, true)
         .expect("failed to create bitmap");
     let tileset = bitmap.tile_set();
 
-    // thread::spawn(|| {}).join().expect("thread join failed");
-
-    let mut wave = tileset.wave(params.wave_dims);
-
-    // wave.attach(&sdl_context, "Wave", 20).collapse(None);
+    let mut wave = tileset.wave(Ix2(10, 10));
 
     wave.collapse(None);
-
-    // wave.wave.get([3, 4]).unwrap().show(&sdl_context, "WaveTile", 100).expect("failed to display wavetile");
-
     wave.show(&sdl_context, "Wave", 20)
         .expect("failed to display wave");
 
