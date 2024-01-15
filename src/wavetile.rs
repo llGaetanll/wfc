@@ -36,6 +36,9 @@ where
 
     num_hashes: usize,
     pub hashes: [[BitSet; 2]; N],
+
+    /// An optional pointer to the bitset of each neighbor. We need `Option` because a WaveTile on
+    /// the edge of the wave may not have all of its neighbors.
     pub neighbor_hashes: [[Option<*const BitSet>; 2]; N],
 
     /// computed as the number of valid tiles
@@ -50,9 +53,7 @@ where
 
     SliceInfo<Vec<SliceInfoElem>, DimN<N>, <DimN<N> as Dimension>::Smaller>: SliceArg<DimN<N>>,
 {
-    /***
-     * Create a new WaveTile from a list of tiles
-     */
+    /// Create a new `WaveTile` from a list of tiles
     pub fn new(
         tiles: Vec<&'a Tile<'a, T, N>>,
         hashes: [[BitSet; 2]; N],
@@ -69,26 +70,6 @@ where
             neighbor_hashes: [[None; 2]; N],
             entropy,
             shape,
-        }
-    }
-
-    /// Given a list of `tile`s that this WaveTile can be, this precomputes the list of valid
-    /// hashes for each of its borders. This is used to speed up the wave propagation algorithm.
-    fn update_hashes(&mut self) {
-        // reset own bitsets
-        self.hashes.iter_mut().for_each(|[left, right]| {
-            left.clear();
-            right.clear();
-        });
-
-        // new bitsets is union of possible tiles
-        for tile in self.possible_tiles.iter_mut() {
-            for ([self_left, self_right], [tile_left, tile_right]) in
-                self.hashes.iter_mut().zip(tile.hashes.iter())
-            {
-                self_left.union_with(tile_left);
-                self_right.union_with(tile_right);
-            }
         }
     }
 
@@ -135,19 +116,11 @@ where
         Some(())
     }
 
-    /// Update the `possible_tiles` of the current `WaveTile` given a list of neighbors.
+    /// Update the `possible_tiles` of the current `WaveTile`
     pub fn update(&mut self) {
         let neighbor_hashes = self.neighbor_hashes;
 
-        let same_neighbors = neighbor_hashes
-            .iter()
-            .all(|[left, right]| left.is_none() && right.is_none());
-
         if self.entropy < 2 {
-            return;
-        }
-
-        if same_neighbors {
             return;
         }
 
@@ -246,6 +219,26 @@ where
                 .map(|[l, r]| [l.len(), r.len()])
                 .collect::<Vec<_>>()
         );
+    }
+
+    /// Given a list of `tile`s that this WaveTile can be, this precomputes the list of valid
+    /// hashes for each of its borders. This is used to speed up the wave propagation algorithm.
+    fn update_hashes(&mut self) {
+        // reset own bitsets
+        self.hashes.iter_mut().for_each(|[left, right]| {
+            left.clear();
+            right.clear();
+        });
+
+        // new bitsets is union of possible tiles
+        for tile in self.possible_tiles.iter_mut() {
+            for ([self_left, self_right], [tile_left, tile_right]) in
+                self.hashes.iter_mut().zip(tile.hashes.iter())
+            {
+                self_left.union_with(tile_left);
+                self_right.union_with(tile_right);
+            }
+        }
     }
 }
 

@@ -127,13 +127,13 @@ where
             .collect();
 
         // 2. Assign the pointers
-        // NOTE: we HAD to do this in two steps.
+        // NOTE: We HAD to do this in two steps.
         //
         //      The first was to get the pointers to the neighbors of each WaveTile. We needed an
         //      immutable reference to wave.wave to do this, since we needed to traverse it.
         //
-        //      The second is to mutate the wave which we are doing now. Remember that, without
-        //      interior mutability, we can't mutate a WaveTile in the Wave without updating the
+        //      The second is to mutate the wave, which we are doing now. Remember that, without
+        //      interior mutability, we can't mutate a WaveTile in the Wave without mutating the
         //      Wave itself. But this requires a mutable reference to wave.wave, hence it must be
         //      done independently from the pointer collection step.
         for (wavetile, neighbor_bitsets) in wave

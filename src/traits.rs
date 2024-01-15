@@ -19,9 +19,7 @@ pub trait Pixel {
     fn pixels(&self) -> Array2<types::Pixel>;
 }
 
-/***
-* Can create a texture from the object
-*/
+/// Can create a texture from the object
 pub trait SdlTexture: Pixel {
     fn texture<'b>(
         &self,

@@ -59,9 +59,7 @@ where
 
     SliceInfo<Vec<SliceInfoElem>, DimN<N>, <DimN<N> as Dimension>::Smaller>: SliceArg<DimN<N>>,
 {
-    /***
-     * Create a new tile from an ndarray
-     */
+    /// Create a new tile from an ndarray
     pub fn new(data: ArrayView<'a, T, DimN<N>>, hashes: [[BitSet; 2]; N]) -> Self {
         Tile {
             data,
