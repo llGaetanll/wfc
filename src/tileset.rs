@@ -31,7 +31,7 @@ where
 
 impl<'a, T, const N: usize> TileSet<'a, T, N>
 where
-    T: Hash + Send + Sync + Clone,
+    T: Hash + Clone,
     DimN<N>: Dimension,
     [usize; N]: NdIndex<DimN<N>>,
 
