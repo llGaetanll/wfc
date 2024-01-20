@@ -29,7 +29,8 @@ where
     SliceInfo<Vec<SliceInfoElem>, DimN<N>, <DimN<N> as Dimension>::Smaller>: SliceArg<DimN<N>>,
 {
     possible_tiles: Vec<&'a Tile<'a, T, N>>,
-    filtered_tiles: Vec<Vec<&'a Tile<'a, T, N>>>,
+    filtered_tiles: Vec<&'a Tile<'a, T, N>>,
+    filtered_tile_indices: Vec<usize>,
 
     num_hashes: usize,
     pub hashes: BitSet,
@@ -65,7 +66,9 @@ where
 
         WaveTile {
             possible_tiles: tiles,
-            filtered_tiles: Vec::new(),
+            // avoid reallocs at runtime
+            filtered_tiles: Vec::with_capacity(entropy),
+            filtered_tile_indices: Vec::with_capacity(entropy),
             num_hashes,
             hashes,
             neighbor_hashes: [[None; 2]; N],
@@ -84,17 +87,18 @@ where
         let mut rng = rand::thread_rng();
         let idx = rng.gen_range(0..self.entropy);
 
-        // TODO: possibly rewrite this as a partition?
-        let valid_tile = self.possible_tiles.get(idx).unwrap().to_owned();
-        let invalid_tiles = self
+        let filtered_tiles = self
             .possible_tiles
-            .drain(..)
+            .iter()
             .enumerate()
-            .filter_map(|(i, tile)| if i != idx { Some(tile) } else { None })
-            .collect();
+            .filter_map(|(i, tile)| if i != idx { Some(tile) } else { None });
 
-        self.possible_tiles = vec![valid_tile];
-        self.filtered_tiles.push(invalid_tiles);
+        self.filtered_tile_indices.push(self.filtered_tiles.len());
+        self.filtered_tiles.extend(filtered_tiles);
+
+        let tile: &Tile<'a, T, N> = self.possible_tiles[idx];
+        self.possible_tiles.clear();
+        self.possible_tiles.push(tile);
 
         // debug!(
         //     "Collapsing wavetile, hashes before: {:?}",
@@ -191,10 +195,22 @@ where
 
         // debug!("wavetile hashes after intersection:\n\t{:?}", self.hashes);
 
+        let filtered_tiles = self
+            .possible_tiles
+            .iter()
+            .filter(|tile| !tile.hashes.is_subset(&self.hashes));
+
+        self.filtered_tile_indices.push(self.filtered_tiles.len());
+        self.filtered_tiles.extend(filtered_tiles);
+        self.possible_tiles
+            .retain(|tile| tile.hashes.is_subset(&self.hashes));
+
+        /*
         let (valid_tiles, invalid_tiles): (Vec<_>, Vec<_>) = self
             .possible_tiles
             .drain(..) // allows us to effectively take ownership of the vector
             .partition(|&tile| tile.hashes.is_subset(&self.hashes));
+        */
 
         // debug!(
         //     "Tile count: {} -> {} ({} tiles culled)",
@@ -203,8 +219,6 @@ where
         //     invalid_tiles.len()
         // );
 
-        self.possible_tiles = valid_tiles;
-        self.filtered_tiles.push(invalid_tiles);
         self.entropy = self.possible_tiles.len();
 
         // NOTE: mutates self's hashes
