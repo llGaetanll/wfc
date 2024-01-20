@@ -1,7 +1,6 @@
 use std::hash::Hash;
 
 use ndarray::Array2;
-use ndarray::Dim;
 use ndarray::Dimension;
 use ndarray::SliceArg;
 use ndarray::SliceInfo;
@@ -10,6 +9,7 @@ use ndarray::SliceInfoElem;
 use rand::Rng;
 
 use crate::bitset::BitSet;
+use crate::out::img::Image;
 use crate::tile::Tile;
 use crate::traits::Pixel;
 use crate::traits::SdlTexture;
@@ -22,7 +22,7 @@ use crate::types::DimN;
 pub struct WaveTile<'a, T, const N: usize>
 where
     T: Hash,
-    Dim<[usize; N]>: Dimension,
+    DimN<N>: Dimension,
 
     SliceInfo<Vec<SliceInfoElem>, DimN<N>, <DimN<N> as Dimension>::Smaller>: SliceArg<DimN<N>>,
 {
@@ -47,8 +47,8 @@ where
 
 impl<'a, T, const N: usize> WaveTile<'a, T, N>
 where
-    T: Hash + std::fmt::Debug,
-    Dim<[usize; N]>: Dimension,
+    T: Hash,
+    DimN<N>: Dimension,
 
     SliceInfo<Vec<SliceInfoElem>, DimN<N>, <DimN<N> as Dimension>::Smaller>: SliceArg<DimN<N>>,
 {
@@ -230,4 +230,4 @@ impl<'a> Pixel for WaveTile<'a, types::Pixel, 2> {
 // use default implementation
 impl<'a> SdlTexture for WaveTile<'a, types::Pixel, 2> {}
 
-impl<'a> crate::out::img::Image for WaveTile<'a, types::Pixel, 2> {}
+impl<'a> Image for WaveTile<'a, types::Pixel, 2> {}

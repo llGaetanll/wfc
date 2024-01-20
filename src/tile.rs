@@ -1,6 +1,5 @@
 use ndarray::Array2;
 use ndarray::ArrayView;
-use ndarray::Dim;
 use ndarray::Dimension;
 use ndarray::SliceArg;
 use ndarray::SliceInfo;
@@ -57,14 +56,12 @@ where
     SliceInfo<Vec<SliceInfoElem>, DimN<N>, <DimN<N> as Dimension>::Smaller>: SliceArg<DimN<N>>,
 {
     /// Create a new tile from an ndarray
-    pub fn new(data: ArrayView<'a, T, DimN<N>>, hashes: BitSet) -> Self {
+    pub fn new(data: ArrayView<'a, T, DimN<N>>, hashes: BitSet, shape: usize) -> Self {
         Tile {
             data,
             id: ArrayHash::hash(&data),
             hashes,
-
-            // assumption is that tiles are "square" in the general sense, for any dimension
-            shape: data.shape()[0],
+            shape,
         }
     }
 }
@@ -136,7 +133,7 @@ impl<'a> Tile<'a, types::Pixel, 2> {
 impl<'a, T, const N: usize> Debug for Tile<'a, T, N>
 where
     T: Hash + std::fmt::Debug,
-    Dim<[usize; N]>: Dimension,
+    DimN<N>: Dimension,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self.data)

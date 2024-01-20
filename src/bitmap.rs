@@ -167,8 +167,8 @@ where
                 hashes_rl.on((2 * i) * num_hashes + index_right);
             }
 
-            tiles_lr.push(Tile::new(view, hashes_lr));
-            tiles_rl.push(Tile::new(view, hashes_rl));
+            tiles_lr.push(Tile::new(view, hashes_lr, self.tile_size));
+            tiles_rl.push(Tile::new(view, hashes_rl, self.tile_size));
         }
 
         let hashes: Vec<BoundaryHash> = unique_hashes.into_keys().collect();

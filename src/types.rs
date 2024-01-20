@@ -1,8 +1,6 @@
 use ndarray::Dim;
 use std::fmt::Debug;
 
-// use crate::wfc::traits::Hash;
-
 pub type TileHash = u64;
 pub type DimN<const N: usize> = Dim<[usize; N]>;
 
@@ -34,11 +32,3 @@ impl IntoIterator for Pixel {
         self.0.into_iter()
     }
 }
-
-// impl Hash for Pixel {
-//     /// Produce a non-colliding hash for a pixel
-//     fn hash(&self) -> u64 {
-//         let p = self.0;
-//         p[0] as u64 * 256_u64 * 256_u64 + p[1] as u64 * 256_u64 + p[2] as u64
-//     }
-// }

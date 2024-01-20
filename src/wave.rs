@@ -29,7 +29,7 @@ use util::WaveArrayExt;
 /// `T` is the type of the element of the wave. All `WaveTile`s for a `Wave` hold the same type.
 pub struct Wave<'a, T, const N: usize>
 where
-    T: Hash + Sync + std::fmt::Debug,
+    T: Hash + Sync,
     DimN<N>: Dimension, // ensures that [usize; N] is a Dimension implemented by ndarray
     [usize; N]: NdIndex<DimN<N>>, // ensures that any [usize; N] is a valid index into the nd array
 
@@ -48,7 +48,7 @@ where
 
 impl<'a, T, const N: usize> Wave<'a, T, N>
 where
-    T: Hash + Sync + Send + std::fmt::Debug,
+    T: Hash + Sync + Send,
     DimN<N>: Dimension,
     [usize; N]: NdIndex<DimN<N>>,
 

@@ -1,4 +1,3 @@
-use std::fmt::Debug;
 use std::hash::Hash;
 use std::pin::Pin;
 
@@ -32,7 +31,7 @@ where
 
 impl<'a, T, const N: usize> TileSet<'a, T, N>
 where
-    T: Hash + Send + Sync + Clone + Debug,
+    T: Hash + Send + Sync + Clone,
     DimN<N>: Dimension,
     [usize; N]: NdIndex<DimN<N>>,
 
