@@ -18,7 +18,7 @@ use crate::types::DimN;
 
 /// A `WaveTile` is a list of `Tile`s in superposition
 /// `T` is the type of each element of the tile
-/// `D` is the dimension of each tile
+/// `N` is the dimension of each tile
 pub struct WaveTile<'a, T, const N: usize>
 where
     T: Hash,

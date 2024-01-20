@@ -24,11 +24,11 @@ use crate::types::DimN;
 use crate::types::TileHash;
 
 /// A `Tile` is a view into our Sample
-/// `D` is the dimension of each tile
+/// `N` is the dimension of each tile
 /// `T is the type of each element
 ///
 /// Note: It would be nice to restrict the type of `hashes` so that the size of
-/// the vector is exactly inline with `D`, but I don't know how I could do that
+/// the vector is exactly inline with `N`, but I don't know how I could do that
 ///
 /// Note: all axes of the dynamic array are the same size.
 pub struct Tile<'a, T, const N: usize>

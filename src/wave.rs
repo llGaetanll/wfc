@@ -23,9 +23,9 @@ use crate::wavetile::WaveTile;
 
 use util::WaveArrayExt;
 
-/// A `Wave` is a `D` dimensional array of `WaveTile`s.
+/// A `Wave` is an `N` dimensional array of `WaveTile`s.
 ///
-/// `D` is the dimension of the wave, as well as the dimension of each element of each `WaveTile`.
+/// `N` is the dimension of the wave, as well as the dimension of each element of each `WaveTile`.
 /// `T` is the type of the element of the wave. All `WaveTile`s for a `Wave` hold the same type.
 pub struct Wave<'a, T, const N: usize>
 where
@@ -33,7 +33,7 @@ where
     DimN<N>: Dimension, // ensures that [usize; N] is a Dimension implemented by ndarray
     [usize; N]: NdIndex<DimN<N>>, // ensures that any [usize; N] is a valid index into the nd array
 
-    // ensures that `D` is such that `SliceInfo` implements the `SliceArg` type of it.
+    // ensures that `N` is such that `SliceInfo` implements the `SliceArg` type of it.
     SliceInfo<Vec<SliceInfoElem>, DimN<N>, <DimN<N> as Dimension>::Smaller>: SliceArg<DimN<N>>,
 {
     pub wave: Array<WaveTile<'a, T, N>, DimN<N>>,
@@ -52,7 +52,7 @@ where
     DimN<N>: Dimension,
     [usize; N]: NdIndex<DimN<N>>,
 
-    // ensures that `D` is such that `SliceInfo` implements the `SliceArg` type of it.
+    // ensures that `N` is such that `SliceInfo` implements the `SliceArg` type of it.
     SliceInfo<Vec<SliceInfoElem>, DimN<N>, <DimN<N> as Dimension>::Smaller>: SliceArg<DimN<N>>,
 {
     pub fn new(shape: DimN<N>, tile_set: &'a TileSet<'a, T, N>) -> Pin<Box<Self>> {
