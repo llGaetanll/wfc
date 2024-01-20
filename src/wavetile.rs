@@ -154,8 +154,6 @@ where
         // new hashes are computed
         self.hashes = hashes;
 
-        // debug!("wavetile hashes after intersection:\n\t{:?}", self.hashes);
-
         let filtered_tiles = self
             .possible_tiles
             .iter()
