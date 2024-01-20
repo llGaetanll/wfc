@@ -6,8 +6,6 @@ use std::path::Path;
 use image::GenericImageView;
 use image::Pixel as ImgPixel;
 
-use log::debug;
-
 use ndarray::Array;
 use ndarray::Array3;
 use ndarray::Axis;
@@ -44,11 +42,6 @@ pub fn from_image(
     with_rotations: bool,
     with_flips: bool,
 ) -> Result<BitMap<Pixel, 2>, String> {
-    debug!(
-        "Creating bitmap for image: {:?}. rots: {}, flips: {}",
-        path, with_rotations, with_flips
-    );
-
     // open the sample image
     let img = image::open(path).map_err(|e| e.to_string())?;
     let (width, height) = img.dimensions();
@@ -90,8 +83,6 @@ pub fn from_image(
     }
 
     let num_tiles = tiles.len();
-
-    debug!("Bitmap dims: {num_tiles} x {win_size} x {win_size}");
 
     // Create a bitmap from the tiles array.
     let bitmap = Array3::from_shape_vec(
@@ -142,9 +133,6 @@ where
 
         // transform the tiles into a list of pairs
         let num_hashes = unique_hashes.len();
-
-        // debug!("{} unique hashes", num_hashes);
-        debug!("Creating bitsets of size {}", 2 * N * num_hashes);
 
         let mut tiles_lr: Vec<Tile<'a, T, N>> = Vec::new();
         let mut tiles_rl: Vec<Tile<'a, T, N>> = Vec::new();

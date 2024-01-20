@@ -1,7 +1,6 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
-// use log::debug;
 use ndarray::Array2;
 use ndarray::Dim;
 use ndarray::Dimension;
@@ -100,25 +99,7 @@ where
         self.possible_tiles.clear();
         self.possible_tiles.push(tile);
 
-        // debug!(
-        //     "Collapsing wavetile, hashes before: {:?}",
-        //     self.hashes
-        //         .iter()
-        //         .map(|[l, r]| [l.len(), r.len()])
-        //         .collect::<Vec<_>>()
-        // );
-
         self.update_hashes();
-
-        // debug!("hashs: {:?}", self.hashes);
-
-        // debug!(
-        //     "Collapsing wavetile, hashes after: {:?}",
-        //     self.hashes
-        //         .iter()
-        //         .map(|[l, r]| [l.len(), r.len()])
-        //         .collect::<Vec<_>>()
-        // );
 
         self.entropy = 1;
 
@@ -131,24 +112,10 @@ where
             return;
         }
 
-        // // safe because Wave is pinned
-        // unsafe {
-        //     debug!(
-        //         "Neighbor hash sizes: {:?}",
-        //         &self
-        //             .neighbor_hashes
-        //             .map(|[l, r]| [l.map(|l| (*l).len()), r.map(|r| (*r).len())])
-        //     );
-        // }
-
-        // debug!("wavetile hashes before intersection:\n\t{:?}", self.hashes);
-
         let hashes: BitSet = BitSet::new();
 
         // owned copy of the self.hashes
         let mut hashes = std::mem::replace(&mut self.hashes, hashes);
-
-        // debug!("Num hashes before intersection: {:?}", hashes.len());
 
         // prepare the correct wavetile hash.
         let mut alt_wavetile_bitset = BitSet::zeros(2 * N * self.num_hashes);
@@ -168,8 +135,6 @@ where
                 }
             };
 
-            // debug!("right: {:?}", right_hashes);
-
             let left_hashes = match left {
                 Some(hashes) => {
                     let hashes = unsafe { &**hashes };
@@ -181,14 +146,10 @@ where
                 }
             };
 
-            // debug!("left:  {:?}", left_hashes);
-
             alt_wavetile_bitset.union(&right_hashes).union(&left_hashes);
         }
 
         hashes.intersect(&alt_wavetile_bitset);
-
-        // debug!("alt:   {:?}\n", alt_wavetile_bitset);
 
         // new hashes are computed
         self.hashes = hashes;
@@ -205,26 +166,10 @@ where
         self.possible_tiles
             .retain(|tile| tile.hashes.is_subset(&self.hashes));
 
-        /*
-        let (valid_tiles, invalid_tiles): (Vec<_>, Vec<_>) = self
-            .possible_tiles
-            .drain(..) // allows us to effectively take ownership of the vector
-            .partition(|&tile| tile.hashes.is_subset(&self.hashes));
-        */
-
-        // debug!(
-        //     "Tile count: {} -> {} ({} tiles culled)",
-        //     num_tiles_before,
-        //     valid_tiles.len(),
-        //     invalid_tiles.len()
-        // );
-
         self.entropy = self.possible_tiles.len();
 
         // NOTE: mutates self's hashes
         self.update_hashes();
-
-        // debug!("Num hashes after tile filtering: {:?}", self.hashes.len());
     }
 
     /// Given a list of `tile`s that this WaveTile can be, this precomputes the list of valid

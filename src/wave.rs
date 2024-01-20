@@ -2,9 +2,6 @@ use std::array::from_fn;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::pin::Pin;
-use std::time::SystemTime;
-
-use log::info;
 
 use ndarray::Array;
 use ndarray::Array2;
@@ -109,7 +106,6 @@ where
         let get_wavetile_neighbor_bitsets = |index: usize| -> [[Option<*const BitSet>; 2]; N] {
             let index = wave.wave.get_nd_index(index);
             let neighbor_indices = wave.wave.get_index_neighbors(index);
-            // info!("{:?} neighbors: {:?}", index, neighbor_indices);
 
             let neighbor_bitsets: [[Option<*const BitSet>; 2]; N] = neighbor_indices
                 .iter()
@@ -162,8 +158,6 @@ where
 
     /// Collapses the wave
     pub fn collapse(&mut self, starting_index: Option<util::NdIndex<N>>) {
-        let t0 = SystemTime::now();
-
         // if the wave is fully collapsed
         if self.max_entropy.0 < 2 {
             return;
@@ -177,7 +171,6 @@ where
 
         // collapse the starting tile
         {
-            // info!("collapsing {:?}", index);
             let wavetile = &mut self.wave[index];
             wavetile.collapse();
         }
@@ -192,17 +185,12 @@ where
 
             {
                 let index = self.min_entropy.1;
-                // info!("collapsing {:?}", index);
                 let wavetile = &mut self.wave[index];
                 wavetile.collapse();
             }
 
             self.propagate(index);
         }
-
-        let t1 = SystemTime::now();
-
-        info!("Collapsed wave in {:?}", t1.duration_since(t0).unwrap());
     }
 
     // Computes the total union of the list of bit sets in `tile_hashes`.
@@ -220,8 +208,6 @@ where
     /// TODO:
     ///  - stop propagation if neighboring tiles haven't updated
     fn propagate(&mut self, start: util::NdIndex<N>) {
-        // let t0 = SystemTime::now();
-
         let (mut min_entropy, mut min_idx) = (usize::MAX, self.min_entropy.1);
         let (mut max_entropy, mut max_idx) = (0, self.max_entropy.1);
 
@@ -253,10 +239,6 @@ where
         // update entropy
         self.min_entropy = (min_entropy, min_idx);
         self.max_entropy = (max_entropy, max_idx);
-
-        // let t1 = SystemTime::now();
-
-        // info!("Propagate in {:?}", t1.duration_since(t0).unwrap());
     }
 }
 
