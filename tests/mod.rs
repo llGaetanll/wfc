@@ -30,13 +30,13 @@ fn simple() {
 
     let sdl_context = sdl2::init().expect("failed to init sdl2 context");
 
-    let bitmap = wfc::from_image(&img_path("sample.png"), 3, true, true)
-        .expect("failed to create bitmap");
+    let bitmap =
+        wfc::from_image(&img_path("sample.png"), 3, true, true).expect("failed to create bitmap");
     let tileset = bitmap.tile_set();
 
     let mut wave = tileset.wave(Ix2(10, 10));
 
-    wave.collapse(None);
+    wave.collapse(Some([4, 5]));
     wave.show(&sdl_context, "Wave", 20)
         .expect("failed to display wave");
 

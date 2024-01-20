@@ -11,14 +11,13 @@ use sdl2::image::InitFlag;
 use sdl2::keyboard::Keycode;
 use sdl2::rect::Rect;
 
-use bit_set::BitSet;
-
 use std::fmt::Debug;
 use std::hash::Hash;
 
 use crate::ext::ndarray as ndarray_ext;
 use ndarray_ext::ArrayHash;
 
+use crate::bitset::BitSet;
 use crate::traits::Pixel;
 use crate::traits::SdlTexture;
 use crate::types;
@@ -46,9 +45,7 @@ where
     /// the same hash, no matter the type.
     pub id: TileHash,
 
-    /// The hash of each side of the tile.
-    /// Each tuple represents opposite sides on an axis of the tile.
-    pub hashes: [[BitSet; 2]; N],
+    pub hashes: BitSet,
     pub shape: usize,
 }
 
@@ -60,14 +57,14 @@ where
     SliceInfo<Vec<SliceInfoElem>, DimN<N>, <DimN<N> as Dimension>::Smaller>: SliceArg<DimN<N>>,
 {
     /// Create a new tile from an ndarray
-    pub fn new(data: ArrayView<'a, T, DimN<N>>, hashes: [[BitSet; 2]; N]) -> Self {
+    pub fn new(data: ArrayView<'a, T, DimN<N>>, hashes: BitSet) -> Self {
         Tile {
             data,
             id: ArrayHash::hash(&data),
             hashes,
 
             // assumption is that tiles are "square" in the general sense, for any dimension
-            shape: data.shape()[0]
+            shape: data.shape()[0],
         }
     }
 }

@@ -1,2 +1,5 @@
 target/
 old/
+
+flamegraph.svg
+perf.*

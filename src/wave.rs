@@ -15,17 +15,16 @@ use ndarray::SliceArg;
 use ndarray::SliceInfo;
 use ndarray::SliceInfoElem;
 
+use crate::bitset::BitSet;
 use crate::tile::Tile;
 use crate::tileset::TileSet;
-use bit_set::BitSet;
+use crate::traits::Pixel;
+use crate::traits::SdlTexture;
+use crate::types;
+use crate::types::DimN;
+use crate::wavetile::WaveTile;
 
-use self::util::WaveArrayExt;
-
-use super::traits::Pixel;
-use super::traits::SdlTexture;
-use super::types;
-use super::types::DimN;
-use super::wavetile::WaveTile;
+use util::WaveArrayExt;
 
 /// A `Wave` is a `D` dimensional array of `WaveTile`s.
 ///
@@ -63,10 +62,10 @@ where
         let tiles = &tile_set.tiles;
 
         let tile_refs: Vec<&'a Tile<'a, T, N>> = tiles.iter().collect();
-        let tile_hashes: Vec<&[[BitSet; 2]; N]> = tiles.iter().map(|tile| &tile.hashes).collect();
+        let tile_bitsets: Vec<&BitSet> = tiles.iter().map(|tile| &tile.hashes).collect();
 
         let num_hashes = tile_set.hashes.len();
-        let wavetile_hashes = Self::merge_tile_bitsets(tile_hashes, num_hashes);
+        let wavetile_bitsets = Self::merge_tile_bitsets(tile_bitsets, num_hashes);
 
         let num_tiles = tiles.len();
 
@@ -78,7 +77,7 @@ where
             max_entropy: (num_tiles, [0; N]),
 
             wave: Array::from_shape_fn(shape, |_| {
-                WaveTile::new(tile_refs.clone(), wavetile_hashes.clone(), num_hashes)
+                WaveTile::new(tile_refs.clone(), wavetile_bitsets.clone(), num_hashes)
             }),
 
             shape,
@@ -94,23 +93,21 @@ where
         let get_wavetile_neighbor_bitsets = |index: usize| -> [[Option<*const BitSet>; 2]; N] {
             let index = wave.wave.get_nd_index(index);
             let neighbor_indices = wave.wave.get_index_neighbors(index);
+            // info!("{:?} neighbors: {:?}", index, neighbor_indices);
 
             let neighbor_bitsets: [[Option<*const BitSet>; 2]; N] = neighbor_indices
                 .iter()
-                .enumerate()
-                .map(|(axis, [left, right])| {
+                .map(|[left, right]| {
                     [
                         left.map(|index| {
                             let wavetile_left = &wave.wave[index];
-                            let bitsets: &[BitSet; 2] = &wavetile_left.hashes[axis];
-                            let bitset_right: *const BitSet = &bitsets[1];
-                            bitset_right
+                            let bitset: *const BitSet = &wavetile_left.hashes;
+                            bitset
                         }),
                         right.map(|index| {
                             let wavetile_right = &wave.wave[index];
-                            let bitsets: &[BitSet; 2] = &wavetile_right.hashes[axis];
-                            let bitset_left: *const BitSet = &bitsets[0];
-                            bitset_left
+                            let bitset: *const BitSet = &wavetile_right.hashes;
+                            bitset
                         }),
                     ]
                 })
@@ -193,27 +190,14 @@ where
     }
 
     // Computes the total union of the list of bit sets in `tile_hashes`.
-    fn merge_tile_bitsets(
-        tile_hashes: Vec<&[[BitSet; 2]; N]>,
-        capacity: usize,
-    ) -> [[BitSet; 2]; N] {
-        let mut hashes: [[BitSet; 2]; N] =
-            from_fn(|_| from_fn(|_| BitSet::with_capacity(capacity)));
+    fn merge_tile_bitsets(tile_bitsets: Vec<&BitSet>, num_hashes: usize) -> BitSet {
+        let mut bitset = BitSet::zeros(2 * N * num_hashes);
 
-        let or_bitsets = |main: &mut [[BitSet; 2]; N], other: &[[BitSet; 2]; N]| {
-            main.iter_mut().zip(other.iter()).for_each(
-                |([main_left, main_right], [other_left, other_right])| {
-                    main_left.union_with(other_left);
-                    main_right.union_with(other_right);
-                },
-            )
-        };
-
-        for tile_hash in tile_hashes {
-            or_bitsets(&mut hashes, tile_hash);
+        for tile_bitset in tile_bitsets {
+            bitset.union(tile_bitset);
         }
 
-        hashes
+        bitset
     }
 
     /// Propagates the wave from an index `start`
