@@ -26,23 +26,30 @@ where
 
     SliceInfo<Vec<SliceInfoElem>, DimN<N>, <DimN<N> as Dimension>::Smaller>: SliceArg<DimN<N>>,
 {
+    /// A `BitSet` representing all the possible hashes of a `WaveTile`.
+    pub hashes: BitSet,
+
+    /// An optional pointer to the `BitSet` of each neighbor. We need `Option` because a WaveTile
+    /// on the edge of the wave may not have all of its neighbors.
+    pub neighbor_hashes: [[Option<*const BitSet>; 2]; N],
+
+    /// The number of possible `Tile`s that the `WavTile` can be.
+    pub entropy: usize,
+
+    /// A list of `Tile`s that the `WaveTile` can be.
     possible_tiles: Vec<&'a Tile<'a, T, N>>,
+
+    /// A list of `Tile`s that the `WaveTile` can no longer be. This is kept to allow backtracking
+    /// in case a `WaveTile` can't collapse down to any `Tile`.
     filtered_tiles: Vec<&'a Tile<'a, T, N>>,
+
+    /// Indices into `filtered_tiles`. Upon backtracking, this list of indices is used to restore
+    /// the `WaveTile`'s state to "any number of updates" ago.
     filtered_tile_indices: Vec<usize>,
 
     num_hashes: usize,
-    pub hashes: BitSet,
-
-    /// An optional pointer to the bitset of each neighbor. We need `Option` because a WaveTile on
-    /// the edge of the wave may not have all of its neighbors.
-    pub neighbor_hashes: [[Option<*const BitSet>; 2]; N],
-
-    /// computed as the number of valid tiles
-    pub entropy: usize,
-    pub shape: usize,
-
-    // either 0 or 1
-    pub parity: usize,
+    shape: usize,
+    parity: usize, // either 0 or 1
 }
 
 impl<'a, T, const N: usize> WaveTile<'a, T, N>
@@ -52,7 +59,7 @@ where
 
     SliceInfo<Vec<SliceInfoElem>, DimN<N>, <DimN<N> as Dimension>::Smaller>: SliceArg<DimN<N>>,
 {
-    /// Create a new `WaveTile` from a list of tiles
+    /// Create a new `WaveTile`
     pub fn new(
         tiles: Vec<&'a Tile<'a, T, N>>,
         hashes: BitSet,

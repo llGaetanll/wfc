@@ -36,7 +36,7 @@ where
     // ensures that `N` is such that `SliceInfo` implements the `SliceArg` type of it.
     SliceInfo<Vec<SliceInfoElem>, DimN<N>, <DimN<N> as Dimension>::Smaller>: SliceArg<DimN<N>>,
 {
-    pub wave: Array<WaveTile<'a, T, N>, DimN<N>>,
+    wave: Array<WaveTile<'a, T, N>, DimN<N>>,
 
     // cached to speed up propagate
     min_entropy: (usize, [usize; N]),
