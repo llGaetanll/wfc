@@ -1,4 +1,3 @@
-use std::fmt::Debug;
 use std::hash::Hash;
 
 use ndarray::Array2;
@@ -232,16 +231,3 @@ impl<'a> Pixel for WaveTile<'a, types::Pixel, 2> {
 impl<'a> SdlTexture for WaveTile<'a, types::Pixel, 2> {}
 
 impl<'a> crate::out::img::Image for WaveTile<'a, types::Pixel, 2> {}
-
-impl<'a, T, const N: usize> Debug for WaveTile<'a, T, N>
-where
-    T: Hash + std::fmt::Debug,
-    Dim<[usize; N]>: Dimension,
-
-    SliceInfo<Vec<SliceInfoElem>, Dim<[usize; N]>, <Dim<[usize; N]> as Dimension>::Smaller>:
-        SliceArg<Dim<[usize; N]>>,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.possible_tiles)
-    }
-}

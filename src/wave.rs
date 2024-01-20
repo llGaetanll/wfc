@@ -1,5 +1,4 @@
 use std::array::from_fn;
-use std::fmt::Debug;
 use std::hash::Hash;
 use std::pin::Pin;
 
@@ -275,19 +274,6 @@ impl<'a> Pixel for Wave<'a, types::Pixel, 2> {
 impl<'a> SdlTexture for Wave<'a, types::Pixel, 2> {}
 
 impl<'a> crate::out::img::Image for Wave<'a, types::Pixel, 2> {}
-
-impl<'a, T, const N: usize> Debug for Wave<'a, T, N>
-where
-    T: Hash + Sync + Send + std::fmt::Debug,
-    DimN<N>: Dimension,
-    [usize; N]: NdIndex<DimN<N>>,
-
-    SliceInfo<Vec<SliceInfoElem>, DimN<N>, <DimN<N> as Dimension>::Smaller>: SliceArg<DimN<N>>,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.wave)
-    }
-}
 
 mod util {
     pub type FlatIndex = usize;
