@@ -31,7 +31,7 @@ pub struct BitMap<T, const N: usize>
 where
     DimN<N>: Dimension,
 {
-    data: Box<Array<T, <DimN<N> as Dimension>::Larger>>,
+    data: Array<T, <DimN<N> as Dimension>::Larger>,
     num_tiles: usize,
     tile_size: usize,
 }
@@ -92,7 +92,7 @@ pub fn from_image(
     .map_err(|e| e.to_string())?;
 
     Ok(BitMap {
-        data: Box::new(bitmap), // TODO: check if an array is already on the heap
+        data: bitmap,
         num_tiles,
         tile_size: win_size,
     })
