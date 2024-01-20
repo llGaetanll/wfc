@@ -35,6 +35,7 @@ where
 {
     data: Box<Array<T, <DimN<N> as Dimension>::Larger>>,
     num_tiles: usize,
+    tile_size: usize,
 }
 
 pub fn from_image(
@@ -102,6 +103,7 @@ pub fn from_image(
     Ok(BitMap {
         data: Box::new(bitmap), // TODO: check if an array is already on the heap
         num_tiles,
+        tile_size: win_size,
     })
 }
 
@@ -144,41 +146,52 @@ where
         // debug!("{} unique hashes", num_hashes);
         debug!("Creating bitsets of size {}", 2 * N * num_hashes);
 
-        let tiles: Vec<Tile<'a, T, N>> = self
-            .data
-            .axis_iter(Axis(0))
-            .zip(tile_hashes.iter())
-            .map(|(view, hashes)| {
-                let mut tile_hashes = BitSet::zeros(2 * N * num_hashes);
+        let mut tiles_lr: Vec<Tile<'a, T, N>> = Vec::new();
+        let mut tiles_rl: Vec<Tile<'a, T, N>> = Vec::new();
 
-                // This is where we define the mapping in our tile's bitset. Some explanation is in
-                // order.
-                //
-                // Suppose we have a 2D Tile. Then, we have two axes and `N = 2`. For each axis, we
-                // have a left and right side (and so we have a left and right hash) which
-                // corresponds to a unique hash number in `unique_hashes`.
-                //
-                // This is the layout of the tile's bitset:
-                //
-                //   [Axis 1 left] | [Axis 1 right] | [Axis 2 left] | [Axis 2 right]
-                //
-                // where each block represents `num_hashes` bits, and only one bit in each block is
-                // flipped on. Namely, this is `index_left` for the left blocks, and `index_right`
-                // for the right blocks.
-                for (i, [left, right]) in hashes.iter().enumerate() {
-                    let index_left = unique_hashes[left];
-                    let index_right = unique_hashes[right];
+        for (view, hashes) in self.data.axis_iter(Axis(0)).zip(tile_hashes.iter()) {
+            let mut hashes_lr = BitSet::zeros(2 * N * num_hashes);
+            let mut hashes_rl = BitSet::zeros(2 * N * num_hashes);
 
-                    tile_hashes.on((2 * i) * num_hashes + index_left);
-                    tile_hashes.on((2 * i + 1) * num_hashes + index_right);
-                }
+            // TODO: update this comment to explain left right vs right left
+            // This is where we define the mapping in our tile's bitset. Some explanation is in
+            // order.
+            //
+            // Suppose we have a 2D Tile. Then, we have two axes and `N = 2`. For each axis, we
+            // have a left and right side (and so we have a left and right hash) which
+            // corresponds to a unique hash number in `unique_hashes`.
+            //
+            // This is the layout of the tile's bitset:
+            //
+            //   [Axis 1 left] | [Axis 1 right] | [Axis 2 left] | [Axis 2 right]
+            //
+            // where each block represents `num_hashes` bits, and only one bit in each block is
+            // flipped on. Namely, this is `index_left` for the left blocks, and `index_right`
+            // for the right blocks.
+            for (i, [left, right]) in hashes.iter().enumerate() {
+                let index_left = unique_hashes[left];
+                let index_right = unique_hashes[right];
 
-                Tile::new(view, tile_hashes)
-            })
-            .collect();
+                hashes_lr.on((2 * i) * num_hashes + index_left);
+                hashes_lr.on((2 * i + 1) * num_hashes + index_right);
+
+                hashes_rl.on((2 * i + 1) * num_hashes + index_left);
+                hashes_rl.on((2 * i) * num_hashes + index_right);
+            }
+
+            tiles_lr.push(Tile::new(view, hashes_lr));
+            tiles_rl.push(Tile::new(view, hashes_rl));
+        }
 
         let hashes: Vec<BoundaryHash> = unique_hashes.into_keys().collect();
 
-        TileSet { hashes, tiles }
+        TileSet {
+            hashes,
+            num_hashes,
+            tiles_lr,
+            tiles_rl,
+            num_tiles: self.num_tiles,
+            tile_size: self.tile_size,
+        }
     }
 }

@@ -10,6 +10,7 @@ use ndarray::Array;
 use ndarray::Array2;
 use ndarray::ArrayBase;
 use ndarray::Dimension;
+use ndarray::IntoDimension;
 use ndarray::NdIndex;
 use ndarray::SliceArg;
 use ndarray::SliceInfo;
@@ -59,29 +60,44 @@ where
     SliceInfo<Vec<SliceInfoElem>, DimN<N>, <DimN<N> as Dimension>::Smaller>: SliceArg<DimN<N>>,
 {
     pub fn new(shape: DimN<N>, tile_set: &'a TileSet<'a, T, N>) -> Pin<Box<Self>> {
-        let tiles = &tile_set.tiles;
+        let tiles_lr: Vec<&'a Tile<'a, T, N>> = tile_set.tiles_lr.iter().collect();
+        let tiles_rl: Vec<&'a Tile<'a, T, N>> = tile_set.tiles_rl.iter().collect();
 
-        let tile_refs: Vec<&'a Tile<'a, T, N>> = tiles.iter().collect();
-        let tile_bitsets: Vec<&BitSet> = tiles.iter().map(|tile| &tile.hashes).collect();
+        let bitset_lr: Vec<&BitSet> = tiles_lr.iter().map(|tile| &tile.hashes).collect();
+        let bitset_rl: Vec<&BitSet> = tiles_rl.iter().map(|tile| &tile.hashes).collect();
 
-        let num_hashes = tile_set.hashes.len();
-        let wavetile_bitsets = Self::merge_tile_bitsets(tile_bitsets, num_hashes);
-
-        let num_tiles = tiles.len();
-
-        // the size of each tile
-        let tile_size = tiles.first().unwrap().shape;
+        let wavetile_bitset_lr: BitSet = Self::merge_tile_bitsets(bitset_lr, tile_set.num_hashes);
+        let wavetile_bitset_rl: BitSet = Self::merge_tile_bitsets(bitset_rl, tile_set.num_hashes);
 
         let wave = Wave {
-            min_entropy: (num_tiles, [0; N]),
-            max_entropy: (num_tiles, [0; N]),
+            min_entropy: (tile_set.num_tiles, [0; N]),
+            max_entropy: (tile_set.num_tiles, [0; N]),
 
-            wave: Array::from_shape_fn(shape, |_| {
-                WaveTile::new(tile_refs.clone(), wavetile_bitsets.clone(), num_hashes)
+            wave: Array::from_shape_fn(shape, |i| {
+                let mut parity: usize = i.into_dimension().as_array_view().sum();
+                parity %= 2;
+
+                if parity % 2 == 0 {
+                    WaveTile::new(
+                        tiles_lr.clone(),
+                        wavetile_bitset_lr.clone(),
+                        tile_set.num_hashes,
+                        tile_set.tile_size,
+                        parity,
+                    )
+                } else {
+                    WaveTile::new(
+                        tiles_rl.clone(),
+                        wavetile_bitset_rl.clone(),
+                        tile_set.num_hashes,
+                        tile_set.tile_size,
+                        parity,
+                    )
+                }
             }),
 
             shape,
-            tile_size,
+            tile_size: tile_set.tile_size,
         };
 
         // we must put our wave in a pinned box to ensure that its contents are not moved.
@@ -161,7 +177,7 @@ where
 
         // collapse the starting tile
         {
-            info!("collapsing {:?}", index);
+            // info!("collapsing {:?}", index);
             let wavetile = &mut self.wave[index];
             wavetile.collapse();
         }
@@ -176,7 +192,7 @@ where
 
             {
                 let index = self.min_entropy.1;
-                info!("collapsing {:?}", index);
+                // info!("collapsing {:?}", index);
                 let wavetile = &mut self.wave[index];
                 wavetile.collapse();
             }
@@ -204,7 +220,7 @@ where
     /// TODO:
     ///  - stop propagation if neighboring tiles haven't updated
     fn propagate(&mut self, start: util::NdIndex<N>) {
-        let t0 = SystemTime::now();
+        // let t0 = SystemTime::now();
 
         let (mut min_entropy, mut min_idx) = (usize::MAX, self.min_entropy.1);
         let (mut max_entropy, mut max_idx) = (0, self.max_entropy.1);
@@ -238,9 +254,9 @@ where
         self.min_entropy = (min_entropy, min_idx);
         self.max_entropy = (max_entropy, max_idx);
 
-        let t1 = SystemTime::now();
+        // let t1 = SystemTime::now();
 
-        info!("Propagate in {:?}", t1.duration_since(t0).unwrap());
+        // info!("Propagate in {:?}", t1.duration_since(t0).unwrap());
     }
 }
 

@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use log::debug;
+// use log::debug;
 use ndarray::Array2;
 use ndarray::Dim;
 use ndarray::Dimension;
@@ -41,6 +41,9 @@ where
     /// computed as the number of valid tiles
     pub entropy: usize,
     pub shape: usize,
+
+    // either 0 or 1
+    pub parity: usize,
 }
 
 impl<'a, T, const N: usize> WaveTile<'a, T, N>
@@ -51,8 +54,13 @@ where
     SliceInfo<Vec<SliceInfoElem>, DimN<N>, <DimN<N> as Dimension>::Smaller>: SliceArg<DimN<N>>,
 {
     /// Create a new `WaveTile` from a list of tiles
-    pub fn new(tiles: Vec<&'a Tile<'a, T, N>>, hashes: BitSet, num_hashes: usize) -> Self {
-        let shape = tiles[0].shape;
+    pub fn new(
+        tiles: Vec<&'a Tile<'a, T, N>>,
+        hashes: BitSet,
+        num_hashes: usize,
+        shape: usize,
+        parity: usize,
+    ) -> Self {
         let entropy = tiles.len();
 
         WaveTile {
@@ -63,6 +71,7 @@ where
             neighbor_hashes: [[None; 2]; N],
             entropy,
             shape,
+            parity,
         }
     }
 
@@ -140,40 +149,42 @@ where
         // prepare the correct wavetile hash.
         let mut alt_wavetile_bitset = BitSet::zeros(2 * N * self.num_hashes);
 
+        let odd = self.parity;
+        let even = 1 - self.parity;
+
         for (axis, [left, right]) in self.neighbor_hashes.iter().enumerate() {
             let right_hashes = match right {
                 Some(hashes) => {
                     let hashes = unsafe { &**hashes };
-                    hashes.mask((2 * axis) * self.num_hashes, self.num_hashes)
+                    hashes.mask((2 * axis + even) * self.num_hashes, self.num_hashes)
                 }
                 None => {
                     let ones = BitSet::ones(2 * N * self.num_hashes);
-                    ones.mask((2 * axis) * self.num_hashes, self.num_hashes)
+                    ones.mask((2 * axis + even) * self.num_hashes, self.num_hashes)
                 }
             };
 
-            debug!("right: {:?}", right_hashes);
+            // debug!("right: {:?}", right_hashes);
 
             let left_hashes = match left {
                 Some(hashes) => {
                     let hashes = unsafe { &**hashes };
-                    hashes.mask((2 * axis + 1) * self.num_hashes, self.num_hashes)
+                    hashes.mask((2 * axis + odd) * self.num_hashes, self.num_hashes)
                 }
                 None => {
                     let ones = BitSet::ones(2 * N * self.num_hashes);
-                    ones.mask((2 * axis + 1) * self.num_hashes, self.num_hashes)
+                    ones.mask((2 * axis + odd) * self.num_hashes, self.num_hashes)
                 }
             };
 
-            debug!("left:  {:?}", left_hashes);
+            // debug!("left:  {:?}", left_hashes);
 
             alt_wavetile_bitset.union(&right_hashes).union(&left_hashes);
         }
 
-        alt_wavetile_bitset.swap_axes(self.num_hashes);
         hashes.intersect(&alt_wavetile_bitset);
 
-        debug!("alt:   {:?}\n", alt_wavetile_bitset);
+        // debug!("alt:   {:?}\n", alt_wavetile_bitset);
 
         // new hashes are computed
         self.hashes = hashes;
