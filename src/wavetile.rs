@@ -1,6 +1,5 @@
 use std::hash::Hash;
 
-use ndarray::Array2;
 use ndarray::Dimension;
 use ndarray::SliceArg;
 use ndarray::SliceInfo;
@@ -9,11 +8,7 @@ use ndarray::SliceInfoElem;
 use rand::Rng;
 
 use crate::bitset::BitSet;
-use crate::out::img::Image;
 use crate::tile::Tile;
-use crate::traits::Pixel;
-use crate::traits::SdlTexture;
-use crate::types;
 use crate::types::DimN;
 
 /// A `WaveTile` is a list of `Tile`s in superposition
@@ -48,7 +43,6 @@ where
     filtered_tile_indices: Vec<usize>,
 
     num_hashes: usize,
-    shape: usize,
     parity: usize, // either 0 or 1
 }
 
@@ -64,7 +58,6 @@ where
         tiles: Vec<&'a Tile<'a, T, N>>,
         hashes: BitSet,
         num_hashes: usize,
-        shape: usize,
         parity: usize,
     ) -> Self {
         let entropy = tiles.len();
@@ -78,7 +71,6 @@ where
             hashes,
             neighbor_hashes: [[None; 2]; N],
             entropy,
-            shape,
             parity,
         }
     }
@@ -188,53 +180,3 @@ where
         }
     }
 }
-
-impl<'a> Pixel for WaveTile<'a, types::Pixel, 2> {
-    fn dims(&self) -> (usize, usize) {
-        // wavetiles are squares
-        (self.shape, self.shape)
-    }
-
-    fn pixels(&self) -> Array2<types::Pixel> {
-        // notice that a single number represents the size of the tile, no
-        // matter the dimension. This is because it is enforced that all axes of
-        // the tile be the same size.
-        let size = self.shape;
-        let num_tiles = self.entropy;
-
-        // merge all tiles into a single one, channel-wise
-        let mut pixels: Vec<[f64; 3]> = vec![[0., 0., 0.]; size * size];
-        for tile in &self.possible_tiles {
-            let tile_pixels = tile.pixels();
-
-            for (pixel, tile_pixel) in pixels.iter_mut().zip(tile_pixels.into_iter()) {
-                for (acc_c, c) in pixel.iter_mut().zip(tile_pixel.into_iter()) {
-                    // since division distributes over addition we can do the division in here and
-                    // avoid overflow at the cost of a higher (although negligible) floating point
-                    // error.
-                    *acc_c += (c as f64) / (num_tiles as f64);
-                }
-            }
-        }
-
-        let as_u8 = |px: [f64; 3]| -> types::Pixel {
-            let pixel: [u8; 3] = px
-                .into_iter()
-                .map(|c| c as u8)
-                .collect::<Vec<_>>()
-                .try_into()
-                .unwrap();
-            pixel.into()
-        };
-
-        // convert back into u8
-        let pixels: Vec<types::Pixel> = pixels.into_iter().map(as_u8).collect();
-
-        Array2::from_shape_vec((size, size), pixels).expect("WaveTile pixel conversion failed")
-    }
-}
-
-// use default implementation
-impl<'a> SdlTexture for WaveTile<'a, types::Pixel, 2> {}
-
-impl<'a> Image for WaveTile<'a, types::Pixel, 2> {}

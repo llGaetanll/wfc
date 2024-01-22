@@ -3,7 +3,6 @@ use std::hash::Hash;
 use std::pin::Pin;
 
 use ndarray::Array;
-use ndarray::Array2;
 use ndarray::ArrayBase;
 use ndarray::Dimension;
 use ndarray::IntoDimension;
@@ -15,9 +14,6 @@ use ndarray::SliceInfoElem;
 use crate::bitset::BitSet;
 use crate::tile::Tile;
 use crate::tileset::TileSet;
-use crate::traits::Pixel;
-use crate::traits::SdlTexture;
-use crate::types;
 use crate::types::DimN;
 use crate::wavetile::WaveTile;
 
@@ -41,9 +37,6 @@ where
     // cached to speed up propagate
     min_entropy: (usize, [usize; N]),
     max_entropy: (usize, [usize; N]),
-
-    shape: DimN<N>,
-    tile_size: usize,
 }
 
 impl<'a, T, const N: usize> Wave<'a, T, N>
@@ -78,7 +71,6 @@ where
                         tiles_lr.clone(),
                         wavetile_bitset_lr.clone(),
                         tile_set.num_hashes,
-                        tile_set.tile_size,
                         parity,
                     )
                 } else {
@@ -86,14 +78,10 @@ where
                         tiles_rl.clone(),
                         wavetile_bitset_rl.clone(),
                         tile_set.num_hashes,
-                        tile_set.tile_size,
                         parity,
                     )
                 }
             }),
-
-            shape,
-            tile_size: tile_set.tile_size,
         };
 
         // we must put our wave in a pinned box to ensure that its contents are not moved.
@@ -240,40 +228,6 @@ where
         self.max_entropy = (max_entropy, max_idx);
     }
 }
-
-impl<'a> Pixel for Wave<'a, types::Pixel, 2> {
-    fn dims(&self) -> (usize, usize) {
-        // the width and height of a wave can differ
-        let (width, height) = self.shape.into_pattern();
-        let tile_size = self.tile_size;
-
-        (width * tile_size, height * tile_size)
-    }
-
-    fn pixels(&self) -> ndarray::Array2<types::Pixel> {
-        let (width, height) = self.dims();
-        let tile_size = self.tile_size;
-
-        let mut pixels: Array2<types::Pixel> =
-            Array2::from_shape_fn((width, height), |_| [0; 3].into());
-
-        for ((i, j), wavetile) in self.wave.indexed_iter() {
-            let wt_pixels = wavetile.pixels();
-
-            for ((k, l), pixel) in wt_pixels.indexed_iter() {
-                let (x, y) = (i * tile_size + k, j * tile_size + l);
-                pixels[[x, y]] = *pixel;
-            }
-        }
-
-        pixels
-    }
-}
-
-// use default implementation
-impl<'a> SdlTexture for Wave<'a, types::Pixel, 2> {}
-
-impl<'a> crate::out::img::Image for Wave<'a, types::Pixel, 2> {}
 
 mod util {
     pub type FlatIndex = usize;
