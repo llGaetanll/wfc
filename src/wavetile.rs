@@ -1,45 +1,24 @@
 use std::hash::Hash;
 
 use ndarray::Dimension;
-use ndarray::SliceArg;
-use ndarray::SliceInfo;
-use ndarray::SliceInfoElem;
-
 use rand::Rng;
 
 use crate::bitset::BitSet;
 use crate::tile::Tile;
 use crate::types::DimN;
 
-/// A `WaveTile` is a list of `Tile`s in superposition
-/// `T` is the type of each element of the tile
-/// `N` is the dimension of each tile
 pub struct WaveTile<'a, T, const N: usize>
 where
     T: Hash,
     DimN<N>: Dimension,
-
-    SliceInfo<Vec<SliceInfoElem>, DimN<N>, <DimN<N> as Dimension>::Smaller>: SliceArg<DimN<N>>,
 {
-    /// A `BitSet` representing all the possible hashes of a `WaveTile`.
     pub hashes: BitSet,
-
-    /// An optional pointer to the `BitSet` of each neighbor. We need `Option` because a WaveTile
-    /// on the edge of the wave may not have all of its neighbors.
     pub neighbor_hashes: [[Option<*const BitSet>; 2]; N],
 
-    /// The number of possible `Tile`s that the `WavTile` can be.
     pub entropy: usize,
 
-    /// A list of `Tile`s that the `WaveTile` can be.
     possible_tiles: Vec<&'a Tile<'a, T, N>>,
-
-    /// A list of `Tile`s that the `WaveTile` can no longer be. This is kept to allow backtracking
-    /// in case a `WaveTile` can't collapse down to any `Tile`.
     filtered_tiles: Vec<&'a Tile<'a, T, N>>,
-
-    /// Indices into `filtered_tiles`. Upon backtracking, this list of indices is used to restore
-    /// the `WaveTile`'s state to "any number of updates" ago.
     filtered_tile_indices: Vec<usize>,
 
     num_hashes: usize,
@@ -50,8 +29,6 @@ impl<'a, T, const N: usize> WaveTile<'a, T, N>
 where
     T: Hash,
     DimN<N>: Dimension,
-
-    SliceInfo<Vec<SliceInfoElem>, DimN<N>, <DimN<N> as Dimension>::Smaller>: SliceArg<DimN<N>>,
 {
     /// Create a new `WaveTile`
     pub fn new(
@@ -115,7 +92,7 @@ where
         // owned copy of the self.hashes
         let mut hashes = std::mem::replace(&mut self.hashes, hashes);
 
-        // prepare the correct wavetile hash.
+        // prepare the correct wavetile hash
         let mut alt_wavetile_bitset = BitSet::zeros(2 * N * self.num_hashes);
 
         let odd = self.parity;

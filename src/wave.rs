@@ -1,15 +1,10 @@
-use std::array::from_fn;
 use std::hash::Hash;
 use std::pin::Pin;
 
 use ndarray::Array;
-use ndarray::ArrayBase;
 use ndarray::Dimension;
 use ndarray::IntoDimension;
 use ndarray::NdIndex;
-use ndarray::SliceArg;
-use ndarray::SliceInfo;
-use ndarray::SliceInfoElem;
 
 use crate::bitset::BitSet;
 use crate::tile::Tile;
@@ -17,7 +12,8 @@ use crate::tileset::TileSet;
 use crate::types::DimN;
 use crate::wavetile::WaveTile;
 
-use util::WaveArrayExt;
+use crate::ext::ndarray::NdIndex as WfcNdIndex;
+use crate::ext::ndarray::WaveArrayExt;
 
 /// A `Wave` is an `N` dimensional array of `WaveTile`s.
 ///
@@ -28,9 +24,6 @@ where
     T: Hash,
     DimN<N>: Dimension, // ensures that [usize; N] is a Dimension implemented by ndarray
     [usize; N]: NdIndex<DimN<N>>, // ensures that any [usize; N] is a valid index into the nd array
-
-    // ensures that `N` is such that `SliceInfo` implements the `SliceArg` type of it.
-    SliceInfo<Vec<SliceInfoElem>, DimN<N>, <DimN<N> as Dimension>::Smaller>: SliceArg<DimN<N>>,
 {
     wave: Array<WaveTile<'a, T, N>, DimN<N>>,
 
@@ -44,9 +37,6 @@ where
     T: Hash,
     DimN<N>: Dimension,
     [usize; N]: NdIndex<DimN<N>>,
-
-    // ensures that `N` is such that `SliceInfo` implements the `SliceArg` type of it.
-    SliceInfo<Vec<SliceInfoElem>, DimN<N>, <DimN<N> as Dimension>::Smaller>: SliceArg<DimN<N>>,
 {
     pub fn new(shape: DimN<N>, tile_set: &'a TileSet<'a, T, N>) -> Pin<Box<Self>> {
         let tiles_lr: Vec<&'a Tile<'a, T, N>> = tile_set.tiles_lr.iter().collect();
@@ -66,6 +56,8 @@ where
                 let mut parity: usize = i.into_dimension().as_array_view().sum();
                 parity %= 2;
 
+                // NOTE: this parity trick *does not* work for any wrapping wave. Maybe encode this
+                // into the type of the wave?
                 if parity % 2 == 0 {
                     WaveTile::new(
                         tiles_lr.clone(),
@@ -144,7 +136,7 @@ where
     }
 
     /// Collapses the wave
-    pub fn collapse(&mut self, starting_index: Option<util::NdIndex<N>>) {
+    pub fn collapse(&mut self, starting_index: Option<WfcNdIndex<N>>) {
         // if the wave is fully collapsed
         if self.max_entropy.0 < 2 {
             return;
@@ -194,7 +186,7 @@ where
     /// Propagates the wave from an index `start`
     /// TODO:
     ///  - stop propagation if neighboring tiles haven't updated
-    fn propagate(&mut self, start: util::NdIndex<N>) {
+    fn propagate(&mut self, start: WfcNdIndex<N>) {
         let (mut min_entropy, mut min_idx) = (usize::MAX, self.min_entropy.1);
         let (mut max_entropy, mut max_idx) = (0, self.max_entropy.1);
 
@@ -226,104 +218,5 @@ where
         // update entropy
         self.min_entropy = (min_entropy, min_idx);
         self.max_entropy = (max_entropy, max_idx);
-    }
-}
-
-mod util {
-    pub type FlatIndex = usize;
-    pub type NdIndex<const N: usize> = [usize; N];
-    pub type NeighborIndices<const N: usize> = [[Option<NdIndex<N>>; 2]; N];
-
-    pub trait WaveArrayExt<const N: usize> {
-        fn get_nd_index(&self, flat_index: FlatIndex) -> NdIndex<N>;
-        fn get_index_groups(&self, start: NdIndex<N>) -> Vec<Vec<NdIndex<N>>>;
-        fn get_index_neighbors(&self, index: NdIndex<N>) -> NeighborIndices<N>;
-    }
-}
-
-impl<S, const N: usize> util::WaveArrayExt<N> for ArrayBase<S, DimN<N>>
-where
-    DimN<N>: ndarray::Dimension,
-    S: ndarray::Data,
-{
-    /// Converts a flat index into an NdIndex
-    fn get_nd_index(&self, flat_index: util::FlatIndex) -> util::NdIndex<N> {
-        let strides = self.strides();
-
-        let mut nd_index: [usize; N] = [0; N];
-        let mut idx_remain = flat_index;
-
-        // safe because |strides| == N
-        unsafe {
-            for (i, stride) in strides.iter().enumerate() {
-                let stride = *stride as usize;
-                let idx = nd_index.get_unchecked_mut(i); // will not fail
-                *idx = idx_remain / stride;
-                idx_remain %= stride;
-            }
-        }
-
-        nd_index
-    }
-
-    /// Computes all the Manhattan distance groups
-    fn get_index_groups(&self, start: util::NdIndex<N>) -> Vec<Vec<util::NdIndex<N>>> {
-        // compute manhattan distance between `start` and `index`
-        let manhattan_dist = |index: util::NdIndex<N>| -> usize {
-            start
-                .iter()
-                .zip(index.iter())
-                .map(|(&a, &b)| ((a as isize) - (b as isize)).unsigned_abs())
-                .sum()
-        };
-
-        // compute the tile farthest away from the starting index
-        // this gives us the number of index groups B are in our wave given the `starting_index`
-        let max_manhattan_dist = self
-            .iter()
-            .enumerate()
-            .map(|(i, _)| manhattan_dist(self.get_nd_index(i)))
-            .max()
-            .unwrap();
-
-        let mut index_groups: Vec<Vec<util::NdIndex<N>>> = vec![Vec::new(); max_manhattan_dist];
-
-        for (index, _) in self.iter().enumerate() {
-            let nd_index = self.get_nd_index(index);
-            let dist = manhattan_dist(nd_index);
-
-            if dist == 0 {
-                continue;
-            }
-
-            index_groups[dist - 1].push(nd_index);
-        }
-
-        index_groups
-    }
-
-    /// For a given NdIndex, returns the list of all the neighbors of that index
-    fn get_index_neighbors(&self, index: util::NdIndex<N>) -> util::NeighborIndices<N> {
-        let shape = self.shape();
-
-        from_fn(|axis| {
-            let left = if index[axis] == 0 {
-                None
-            } else {
-                let mut left = index;
-                left[axis] -= 1;
-                Some(left)
-            };
-
-            let right = if index[axis] == shape[axis] - 1 {
-                None
-            } else {
-                let mut right = index;
-                right[axis] += 1;
-                Some(right)
-            };
-
-            [left, right]
-        })
     }
 }

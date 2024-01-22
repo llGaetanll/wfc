@@ -1,16 +1,10 @@
 use std::hash::Hash;
-use std::pin::Pin;
 
 use ndarray::Dimension;
-use ndarray::NdIndex;
-use ndarray::SliceArg;
-use ndarray::SliceInfo;
-use ndarray::SliceInfoElem;
 
 use crate::tile::Tile;
 use crate::types::BoundaryHash;
 use crate::types::DimN;
-use crate::wave::Wave;
 
 pub struct TileSet<'a, T, const N: usize>
 where
@@ -27,17 +21,4 @@ where
 
     pub num_tiles: usize,
     pub tile_size: usize,
-}
-
-impl<'a, T, const N: usize> TileSet<'a, T, N>
-where
-    T: Hash + Clone,
-    DimN<N>: Dimension,
-    [usize; N]: NdIndex<DimN<N>>,
-
-    SliceInfo<Vec<SliceInfoElem>, DimN<N>, <DimN<N> as Dimension>::Smaller>: SliceArg<DimN<N>>,
-{
-    pub fn wave(&'a self, shape: DimN<N>) -> Pin<Box<Wave<'a, T, N>>> {
-        Wave::new(shape, self)
-    }
 }

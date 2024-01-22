@@ -1,3 +1,4 @@
+mod ext;
 mod types;
 
 pub mod bitset;
