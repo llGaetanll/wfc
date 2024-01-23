@@ -4,6 +4,7 @@ use ndarray::Dimension;
 use rand::Rng;
 
 use crate::bitset::BitSet;
+use crate::bitset::BitSlice;
 use crate::tile::Tile;
 use crate::types::DimN;
 
@@ -13,7 +14,7 @@ where
     DimN<N>: Dimension,
 {
     pub hashes: BitSet,
-    pub neighbor_hashes: [[Option<*const BitSet>; 2]; N],
+    pub neighbor_hashes: [[Option<*const BitSlice>; 2]; N],
 
     pub entropy: usize,
 

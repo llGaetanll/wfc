@@ -7,6 +7,7 @@ use ndarray::IntoDimension;
 use ndarray::NdIndex;
 
 use crate::bitset::BitSet;
+use crate::bitset::BitSlice;
 use crate::tile::Tile;
 use crate::tileset::TileSet;
 use crate::types::DimN;
@@ -82,23 +83,25 @@ where
         // for each WaveTile, we need to get a list of pointers to its neighbors. This is why we
         // pinned the box.
 
-        let get_wavetile_neighbor_bitsets = |index: usize| -> [[Option<*const BitSet>; 2]; N] {
+        let get_wavetile_neighbor_bitsets = |index: usize| -> [[Option<*const BitSlice>; 2]; N] {
             let index = wave.wave.get_nd_index(index);
             let neighbor_indices = wave.wave.get_index_neighbors(index);
 
-            let neighbor_bitsets: [[Option<*const BitSet>; 2]; N] = neighbor_indices
+            let neighbor_bitsets: [[Option<*const BitSlice>; 2]; N] = neighbor_indices
                 .iter()
                 .map(|[left, right]| {
                     [
                         left.map(|index| {
                             let wavetile_left = &wave.wave[index];
-                            let bitset: *const BitSet = &wavetile_left.hashes;
-                            bitset
+                            let hashes: &BitSlice = &wavetile_left.hashes;
+                            let hashes: *const BitSlice = hashes;
+                            hashes
                         }),
                         right.map(|index| {
                             let wavetile_right = &wave.wave[index];
-                            let bitset: *const BitSet = &wavetile_right.hashes;
-                            bitset
+                            let hashes: &BitSlice = &wavetile_right.hashes;
+                            let hashes: *const BitSlice = hashes;
+                            hashes
                         }),
                     ]
                 })
@@ -110,9 +113,10 @@ where
         };
 
         // the complete list of all neighbor bitset pointers for each wavetile of the wave
-        let wavetile_bitsets_neighbors: Vec<[[Option<*const BitSet>; 2]; N]> = (0..wave.wave.len())
-            .map(get_wavetile_neighbor_bitsets)
-            .collect();
+        let wavetile_bitsets_neighbors: Vec<[[Option<*const BitSlice>; 2]; N]> =
+            (0..wave.wave.len())
+                .map(get_wavetile_neighbor_bitsets)
+                .collect();
 
         // 2. Assign the pointers
         // NOTE: We HAD to do this in two steps.

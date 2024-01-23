@@ -1,15 +1,55 @@
+///
+/// A Bitset representation, specialized for Wave Function Collapse
+///
 use core::fmt::Debug;
-
-/// Wrapper in case ever needs to be changed
-pub type BitsType = Vec<usize>;
+use std::ops::Deref;
 
 pub const WORD_SIZE: usize = std::mem::size_of::<usize>() * 8;
 
-/// A Bitset representation, specialized for wfc
 #[repr(transparent)]
 #[derive(Default, Clone)]
-pub struct BitSet {
-    bits: BitsType,
+pub struct BitSet(Vec<usize>);
+
+#[repr(transparent)]
+pub struct BitSlice([usize]);
+
+impl BitSlice {
+    /// Computes whether `self` is a subset of `other`.
+    pub fn is_subset(&self, other: &Self) -> bool {
+        self.0
+            .iter()
+            .zip(other.0.iter())
+            .all(|(l, r)| *l & *r == *l)
+    }
+
+    /// Computes whether `self` is a superset of `other`.
+    pub fn is_superset(&self, other: &Self) -> bool {
+        self.0
+            .iter()
+            .zip(other.0.iter())
+            .all(|(l, r)| *l & *r == *r)
+    }
+
+    /// Create a contiguous mask of `self`. Note that `offset + size` should never exceed the size
+    /// of `self`.
+    pub fn mask(&self, offset: usize, size: usize) -> BitSet {
+        let n = self.0.len();
+
+        assert!(
+            n <= size + offset,
+            "tried to mask with size: {size}, offset: {offset}, but length is {n}"
+        );
+
+        let mut mask = create_mask(n, size, offset);
+        mask.intersect(self);
+
+        mask
+    }
+
+    /// Negates `self`, producing a copy.
+    pub fn negate(&self) -> BitSet {
+        BitSet(self.0.iter().map(|n| !n).collect())
+    }
 }
 
 fn create_mask(capacity: usize, size: usize, offset: usize) -> BitSet {
@@ -30,10 +70,9 @@ fn create_mask(capacity: usize, size: usize, offset: usize) -> BitSet {
         .checked_shl((WORD_SIZE - end_bit) as u32)
         .unwrap_or(0);
 
-    BitSet { bits: mask }
+    BitSet(mask)
 }
 
-// TODO: allow operations to return operators for easy chaining of operations
 impl BitSet {
     /// Initialize a new, empty `BitSet`
     pub fn new() -> Self {
@@ -42,9 +81,7 @@ impl BitSet {
 
     /// Initialize a new `BitSet` with a given `capacity`.
     pub fn with_capacity(capacity: usize) -> Self {
-        Self {
-            bits: Vec::with_capacity(capacity),
-        }
+        Self(Vec::with_capacity(capacity))
     }
 
     /// Initialize a new BitSet of a given `capacity`, and fill it with zeros. The actual capacity
@@ -52,9 +89,7 @@ impl BitSet {
     pub fn zeros(capacity: usize) -> Self {
         let n = (capacity + WORD_SIZE - 1) / WORD_SIZE;
 
-        Self {
-            bits: vec![usize::MIN; n],
-        }
+        Self(vec![usize::MIN; n])
     }
 
     /// Initialize a new BitSet of a given `capacity`, and fill it with ones. The actual capacity
@@ -62,9 +97,7 @@ impl BitSet {
     pub fn ones(capacity: usize) -> Self {
         let n = (capacity + WORD_SIZE - 1) / WORD_SIZE;
 
-        Self {
-            bits: vec![usize::MAX; n],
-        }
+        Self(vec![usize::MAX; n])
     }
 
     /// Sets the bit at the given `index` on.
@@ -74,7 +107,7 @@ impl BitSet {
         let j = index % WORD_SIZE;
 
         let mask = 1usize << (WORD_SIZE - j - 1);
-        self.bits[i] |= mask;
+        self.0[i] |= mask;
 
         self
     }
@@ -86,17 +119,17 @@ impl BitSet {
         let j = index % WORD_SIZE;
 
         let mask = 1usize << (WORD_SIZE - j - 1);
-        self.bits[i] &= !mask;
+        self.0[i] &= !mask;
 
         self
     }
 
     /// Compute the intersection of two bitsets while mutating `self`.
     /// Returns `&mut self` to allow for operation chaining.
-    pub fn intersect(&mut self, other: &Self) -> &mut Self {
-        self.bits
+    pub fn intersect(&mut self, other: &BitSlice) -> &mut Self {
+        self.0
             .iter_mut()
-            .zip(other.bits.iter())
+            .zip(other.0.iter())
             .for_each(|(l, r)| *l &= r);
 
         self
@@ -104,57 +137,18 @@ impl BitSet {
 
     /// Compute the union of two bitsets while mutating `self`.
     /// Returns `&mut self` to allow for operation chaining.
-    pub fn union(&mut self, other: &Self) -> &mut Self {
-        self.bits
+    pub fn union(&mut self, other: &BitSlice) -> &mut Self {
+        self.0
             .iter_mut()
-            .zip(other.bits.iter())
+            .zip(other.0.iter())
             .for_each(|(l, r)| *l |= r);
 
         self
     }
 
-    /// Computes whether `self` is a subset of `other`.
-    pub fn is_subset(&self, other: &Self) -> bool {
-        self.bits
-            .iter()
-            .zip(other.bits.iter())
-            .all(|(l, r)| *l & *r == *l)
-    }
-
-    /// Computes whether `self` is a superset of `other`.
-    pub fn is_superset(&self, other: &Self) -> bool {
-        self.bits
-            .iter()
-            .zip(other.bits.iter())
-            .all(|(l, r)| *l & *r == *r)
-    }
-
-    /// Create a contiguous mask of `self`. Note that `offset + size` should never exceed the size
-    /// of `self`.
-    pub fn mask(&self, offset: usize, size: usize) -> BitSet {
-        let n = self.bits.len();
-
-        assert!(
-            n <= size + offset,
-            "tried to mask with size: {size}, offset: {offset}, but length is {n}"
-        );
-
-        let mut mask = create_mask(n, size, offset);
-        mask.intersect(self);
-
-        mask
-    }
-
     /// Zeros out the bitset, effectively resetting it.
     pub fn zero(&mut self) {
-        self.bits.fill(0usize);
-    }
-
-    /// Negates `self`, producing a copy.
-    pub fn negate(&self) -> Self {
-        Self {
-            bits: self.bits.iter().map(|n| !n).collect(),
-        }
+        self.0.fill(0usize);
     }
 
     /// Rotates `self` left by `nbits`.
@@ -166,16 +160,16 @@ impl BitSet {
         let mask: usize = !(1usize.rotate_left((WORD_SIZE - rem) as u32) - 1);
 
         let mut rem_bits: Vec<usize> = self
-            .bits
+            .0
             .iter()
             .map(|word| (*word & mask).rotate_left(rem as u32))
             .collect();
 
         rem_bits.rotate_left(rot_ceil);
 
-        self.bits.iter_mut().for_each(|word| *word <<= nbits);
-        self.bits.rotate_left(rot);
-        self.bits
+        self.0.iter_mut().for_each(|word| *word <<= nbits);
+        self.0.rotate_left(rot);
+        self.0
             .iter_mut()
             .zip(rem_bits)
             .for_each(|(word, rem)| *word |= rem);
@@ -190,29 +184,19 @@ impl BitSet {
         let mask: usize = 1usize.rotate_left(rem as u32) - 1;
 
         let mut rem_bits: Vec<usize> = self
-            .bits
+            .0
             .iter()
             .map(|word| (*word & mask).rotate_right(rem as u32))
             .collect();
 
         rem_bits.rotate_right(rot_ceil);
 
-        self.bits.iter_mut().for_each(|word| *word >>= nbits);
-        self.bits.rotate_right(rot);
-        self.bits
+        self.0.iter_mut().for_each(|word| *word >>= nbits);
+        self.0.rotate_right(rot);
+        self.0
             .iter_mut()
             .zip(rem_bits)
             .for_each(|(word, rem)| *word |= rem);
-    }
-}
-
-impl Debug for BitSet {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for n in &self.bits {
-            write!(f, "{:064b}", *n)?;
-        }
-
-        Ok(())
     }
 }
 
@@ -240,7 +224,7 @@ impl BitSet {
                 .unwrap_or(0);
         }
 
-        let num_words = self.bits.len();
+        let num_words = self.0.len();
         let mut mask = vec![bit_pattern; num_words];
 
         for (i, word) in mask.iter_mut().enumerate() {
@@ -253,11 +237,11 @@ impl BitSet {
                 .unwrap_or(0);
         }
 
-        Self { bits: mask }
+        Self(mask)
     }
 
     fn axis_mask_large(&self, num_hashes: usize) -> BitSet {
-        let num_words = self.bits.len();
+        let num_words = self.0.len();
 
         let mut mask = vec![0usize; num_words];
         let num_bits = num_words * WORD_SIZE;
@@ -290,7 +274,7 @@ impl BitSet {
                 .for_each(|word| *word = usize::MAX);
         }
 
-        BitSet { bits: mask }
+        BitSet(mask)
     }
 }
 
@@ -306,5 +290,26 @@ impl BitSet {
         self.rotate_left(num_hashes);
 
         self.union(&left_mask);
+    }
+}
+
+impl Debug for BitSlice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for n in &self.0 {
+            write!(f, "{:064b}", *n)?;
+        }
+
+        Ok(())
+    }
+}
+
+impl Deref for BitSet {
+    type Target = BitSlice;
+
+    fn deref(&self) -> &Self::Target {
+        let s = self.0.as_slice();
+
+        // SAFETY: `BitSlice` has the same repr as `[usize]`
+        unsafe { &*(s as *const [usize] as *const BitSlice) }
     }
 }
