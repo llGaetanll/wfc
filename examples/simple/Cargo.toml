@@ -9,6 +9,7 @@ edition = "2021"
 sdl2 = { version = "0.35.2", features = ["image"], default-features = false }
 wfc = { path = "../../" }
 ndarray = "0.15.6"
+image = "0.25.0"
 
 [[bin]]
 name = "simple"
