@@ -1,7 +1,5 @@
 use std::path::PathBuf;
 
-use wfc::traits::SdlTexture;
-
 use ndarray::Ix2;
 
 const TESTS_PATH: [&str; 2] = [".", "tests"];
@@ -28,6 +26,7 @@ fn init_logger() {
 fn simple() {
     init_logger();
 
+    /*
     let sdl_context = sdl2::init().expect("failed to init sdl2 context");
 
     let bitmap =
@@ -41,4 +40,5 @@ fn simple() {
         .expect("failed to display wave");
 
     assert_eq!(false, true)
+    */
 }

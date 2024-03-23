@@ -1,20 +1,22 @@
 use ndarray::Dimension;
 
-use std::hash::Hash;
 use std::marker::PhantomData;
 
 use crate::bitset::BitSet;
+use crate::traits::BoundaryHash;
 use crate::types::DimN;
-use crate::types::TileHash;
+use crate::types::TileID;
 
 pub struct Tile<'a, T, const N: usize>
 where
-    T: Hash,
+    T: BoundaryHash<N>,
     DimN<N>: Dimension,
 {
     data: PhantomData<&'a T>,
 
-    pub id: TileHash,
+    /// The index of the data of the `Tile` in the associated `TileSet`.
+    /// This is how we reconstruct the data from the `Wave`
+    pub id: TileID,
 
     pub hashes: BitSet,
     pub shape: usize,
@@ -22,10 +24,10 @@ where
 
 impl<'a, T, const N: usize> Tile<'a, T, N>
 where
-    T: Hash,
+    T: BoundaryHash<N>,
     DimN<N>: Dimension,
 {
-    pub fn new(id: TileHash, hashes: BitSet, shape: usize) -> Self {
+    pub fn new(id: TileID, hashes: BitSet, shape: usize) -> Self {
         Tile {
             data: PhantomData,
             id,

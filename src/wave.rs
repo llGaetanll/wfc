@@ -1,4 +1,3 @@
-use std::hash::Hash;
 use std::pin::Pin;
 
 use ndarray::Array;
@@ -9,7 +8,7 @@ use ndarray::NdIndex;
 use crate::bitset::BitSet;
 use crate::bitset::BitSlice;
 use crate::tile::Tile;
-use crate::tileset::TileSet;
+use crate::traits::BoundaryHash;
 use crate::types::DimN;
 use crate::wavetile::WaveTile;
 
@@ -22,7 +21,7 @@ use crate::ext::ndarray::WaveArrayExt;
 /// `T` is the type of the element of the wave. All `WaveTile`s for a `Wave` hold the same type.
 pub struct Wave<'a, T, const N: usize>
 where
-    T: Hash,
+    T: BoundaryHash<N>,
     DimN<N>: Dimension, // ensures that [usize; N] is a Dimension implemented by ndarray
     [usize; N]: NdIndex<DimN<N>>, // ensures that any [usize; N] is a valid index into the nd array
 {
@@ -35,23 +34,29 @@ where
 
 impl<'a, T, const N: usize> Wave<'a, T, N>
 where
-    T: Hash,
+    T: BoundaryHash<N>,
     DimN<N>: Dimension,
     [usize; N]: NdIndex<DimN<N>>,
 {
-    pub fn new(shape: DimN<N>, tile_set: &'a TileSet<'a, T, N>) -> Pin<Box<Self>> {
-        let tiles_lr: Vec<&'a Tile<'a, T, N>> = tile_set.tiles_lr.iter().collect();
-        let tiles_rl: Vec<&'a Tile<'a, T, N>> = tile_set.tiles_rl.iter().collect();
+    pub fn new(
+        shape: DimN<N>,
+        num_hashes: usize,
+        tiles_lr: &'a [Tile<'a, T, N>],
+        tiles_rl: &'a [Tile<'a, T, N>],
+        num_tiles: usize,
+    ) -> Pin<Box<Self>> {
+        let tiles_lr: Vec<&'a Tile<'a, T, N>> = tiles_lr.iter().collect();
+        let tiles_rl: Vec<&'a Tile<'a, T, N>> = tiles_rl.iter().collect();
 
         let bitset_lr: Vec<&BitSet> = tiles_lr.iter().map(|tile| &tile.hashes).collect();
         let bitset_rl: Vec<&BitSet> = tiles_rl.iter().map(|tile| &tile.hashes).collect();
 
-        let wavetile_bitset_lr: BitSet = Self::merge_tile_bitsets(bitset_lr, tile_set.num_hashes);
-        let wavetile_bitset_rl: BitSet = Self::merge_tile_bitsets(bitset_rl, tile_set.num_hashes);
+        let wavetile_bitset_lr: BitSet = Self::merge_tile_bitsets(bitset_lr, num_hashes);
+        let wavetile_bitset_rl: BitSet = Self::merge_tile_bitsets(bitset_rl, num_hashes);
 
         let wave = Wave {
-            min_entropy: (tile_set.num_tiles, [0; N]),
-            max_entropy: (tile_set.num_tiles, [0; N]),
+            min_entropy: (num_tiles, [0; N]),
+            max_entropy: (num_tiles, [0; N]),
 
             wave: Array::from_shape_fn(shape, |i| {
                 let mut parity: usize = i.into_dimension().as_array_view().sum();
@@ -63,14 +68,14 @@ where
                     WaveTile::new(
                         tiles_lr.clone(),
                         wavetile_bitset_lr.clone(),
-                        tile_set.num_hashes,
+                        num_hashes,
                         parity,
                     )
                 } else {
                     WaveTile::new(
                         tiles_rl.clone(),
                         wavetile_bitset_rl.clone(),
-                        tile_set.num_hashes,
+                        num_hashes,
                         parity,
                     )
                 }

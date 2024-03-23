@@ -1,4 +1,4 @@
-use std::hash::Hash;
+use std::marker::PhantomPinned;
 
 use ndarray::Dimension;
 use rand::Rng;
@@ -6,16 +6,16 @@ use rand::Rng;
 use crate::bitset::BitSet;
 use crate::bitset::BitSlice;
 use crate::tile::Tile;
+use crate::traits::BoundaryHash;
 use crate::types::DimN;
 
 pub struct WaveTile<'a, T, const N: usize>
 where
-    T: Hash,
+    T: BoundaryHash<N>,
     DimN<N>: Dimension,
 {
     pub hashes: BitSet,
     pub neighbor_hashes: [[Option<*const BitSlice>; 2]; N],
-
     pub entropy: usize,
 
     possible_tiles: Vec<&'a Tile<'a, T, N>>,
@@ -24,11 +24,13 @@ where
 
     num_hashes: usize,
     parity: usize, // either 0 or 1
+
+    _pin: PhantomPinned,
 }
 
 impl<'a, T, const N: usize> WaveTile<'a, T, N>
 where
-    T: Hash,
+    T: BoundaryHash<N>,
     DimN<N>: Dimension,
 {
     /// Create a new `WaveTile`
@@ -50,6 +52,7 @@ where
             neighbor_hashes: [[None; 2]; N],
             entropy,
             parity,
+            _pin: PhantomPinned,
         }
     }
 
@@ -102,6 +105,7 @@ where
         for (axis, [left, right]) in self.neighbor_hashes.iter().enumerate() {
             let right_hashes = match right {
                 Some(hashes) => {
+                    // SAFETY: Wave is pinned
                     let hashes = unsafe { &**hashes };
                     hashes.mask((2 * axis + even) * self.num_hashes, self.num_hashes)
                 }
@@ -113,6 +117,7 @@ where
 
             let left_hashes = match left {
                 Some(hashes) => {
+                    // SAFETY: Wave is pinned
                     let hashes = unsafe { &**hashes };
                     hashes.mask((2 * axis + odd) * self.num_hashes, self.num_hashes)
                 }

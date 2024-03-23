@@ -1,18 +1,21 @@
-workspace = { members = ["examples/simple"] }
+workspace = { members = ["examples/image", "examples/tiles"] }
+
 [package]
 name = "wfc"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 rand = "0.8.5"
-sdl2 = {version = "0.35.2", features = ["image"], default-features = false}
-image = "0.23.14"
-regex = "1.7.0"
 ndarray = "0.15.6"
+sdl2 = { version = "0.35.2", features = ["image"], default-features = false, optional = true }
+image = { version = "0.25.0", optional = true }
 rayon = "1.6.1"
 anyhow = "1.0.75"
 log = "0.4.20"
 env_logger = "0.10.1"
+
+[features]
+default = ["sdl", "image"]
+image = ["dep:image"]
+sdl = ["dep:sdl2"]
