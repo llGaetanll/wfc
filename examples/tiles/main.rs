@@ -13,15 +13,12 @@ fn main() {
         .expect("tileset directory not found")
         .filter_map(|file| {
             let file = file.ok();
-            file.and_then(|file| image::open(file.path()).ok().map(|img| img.to_rgb8()))
+            file.and_then(|file| image::open(file.path()).ok())
         })
         .collect();
 
     let mut tile_set = TileSet::from_images(images);
-    let mut wave = tile_set
-        .with_rots()
-        .with_flips()
-        .wave(Ix2(10, 10));
+    let mut wave = tile_set.with_rots().with_flips().wave(Ix2(10, 10));
 
     let t0 = SystemTime::now();
     wave.collapse(None);

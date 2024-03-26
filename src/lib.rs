@@ -1,6 +1,6 @@
 mod ext;
-mod types;
 mod traits;
+mod types;
 
 #[doc(inline)]
 pub use std;

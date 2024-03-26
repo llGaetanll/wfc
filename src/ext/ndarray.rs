@@ -1,6 +1,7 @@
 use std::array::from_fn;
 use std::mem;
 
+use image::GenericImage;
 use image::ImageBuffer;
 use image::Pixel;
 
@@ -115,15 +116,14 @@ pub trait ArrayToImageExt<P>
 where
     P: Pixel,
 {
-    fn to_image(self) -> Option<ImageBuffer<P, Vec<P::Subpixel>>>;
+    fn to_image(self) -> Option<impl GenericImage<Pixel = P>>;
 }
 
 impl<P> ArrayToImageExt<P> for Array2<P>
 where
-    P: Pixel + 'static, // FIXME: can't be static, this will leak
+    P: Pixel,
 {
-    fn to_image(self) -> Option<ImageBuffer<P, Vec<P::Subpixel>>>
-    {
+    fn to_image(self) -> Option<impl GenericImage<Pixel = P>> {
         let s = self.shape();
         let (w, h) = (s[0], s[1]);
         let c = P::CHANNEL_COUNT as usize;
@@ -148,9 +148,10 @@ where
 }
 
 impl<P> ArraySubpixelsExt<P> for Array2<P>
-where P: Pixel
+where
+    P: Pixel,
 {
-    /// Convert an array of `Pixel`s to `Subpixel`s 
+    /// Convert an array of `Pixel`s to `Subpixel`s
     fn to_subpixels(self) -> Array3<P::Subpixel> {
         let s = self.shape();
         let (w, h) = (s[0], s[1]);
@@ -164,7 +165,11 @@ where P: Pixel
             let length = data.len();
             let capacity = data.capacity();
 
-            mem::transmute::<Vec<P>, Vec<P::Subpixel>>(Vec::from_raw_parts(ptr, length * c, capacity * c))
+            mem::transmute::<Vec<P>, Vec<P::Subpixel>>(Vec::from_raw_parts(
+                ptr,
+                length * c,
+                capacity * c,
+            ))
         };
 
         Array3::from_shape_vec((w, h, c), subpixel_data).unwrap()
@@ -180,9 +185,10 @@ where
 }
 
 impl<P> ArrayPixelsExt<P> for Array3<P::Subpixel>
-where P: Pixel
+where
+    P: Pixel,
 {
-    /// Convert an array of `Subpixel`s to `Pixel`s 
+    /// Convert an array of `Subpixel`s to `Pixel`s
     fn to_pixels(self) -> Array2<P> {
         let s = self.shape();
         let (w, h) = (s[0], s[1]);
@@ -196,7 +202,11 @@ where P: Pixel
             let length = data.len();
             let capacity = data.capacity();
 
-            mem::transmute::<Vec<P::Subpixel>, Vec<P>>(Vec::from_raw_parts(ptr, length.div_ceil(c), capacity.div_ceil(c)))
+            mem::transmute::<Vec<P::Subpixel>, Vec<P>>(Vec::from_raw_parts(
+                ptr,
+                length.div_ceil(c),
+                capacity.div_ceil(c),
+            ))
         };
 
         Array2::from_shape_vec((w, h), pixel_data).unwrap()

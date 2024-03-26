@@ -9,9 +9,10 @@ use ndarray::NdIndex;
 use crate::bitset::BitSet;
 use crate::tile::Tile;
 use crate::traits::BoundaryHash;
+use crate::traits::Merge;
+use crate::traits::Stitch;
 use crate::types::DimN;
 use crate::wave::Wave;
-use crate::wavetile::WaveTile;
 
 pub struct TileSet<'a, T, const N: usize>
 where
@@ -67,12 +68,12 @@ where
 
 impl<'a, T, const N: usize> TileSet<'a, T, N>
 where
-    T: BoundaryHash<N>,
+    T: BoundaryHash<N> + Clone + Merge + Stitch<T, N>,
     DimN<N>: Dimension,
     [usize; N]: NdIndex<DimN<N>>,
 {
     // FIXME: exposing DimN<N> leaks ndarray API
-    pub fn wave(&'a mut self, shape: DimN<N>) -> Pin<Box<Wave<'_, T, N>>> {
+    pub fn wave(&mut self, shape: DimN<N>) -> Pin<Box<Wave<'_, T, N>>> {
         let mut hash_index: usize = 0;
         let mut unique_hashes: HashMap<u64, usize> = HashMap::new();
         let mut tile_hashes = Vec::with_capacity(self.data.len());
@@ -129,47 +130,5 @@ where
         }
 
         Wave::new(shape, num_hashes, &self.tiles_lr, &self.tiles_rl, num_tiles)
-    }
-}
-
-pub trait GoBack<'a, T, const N: usize>
-where
-    T: BoundaryHash<N>,
-    DimN<N>: Dimension,
-{
-    fn go_back(&'a self, tileset: &'a TileSet<'a, T, N>) -> &'a T;
-}
-
-impl<'a, T, const N: usize> GoBack<'a, T, N> for Wave<'a, T, N>
-where
-    T: BoundaryHash<N>,
-    DimN<N>: Dimension,
-    [usize; N]: NdIndex<DimN<N>>,
-{
-    /// Convert back from a `Wave<T>` to `T`
-    fn go_back(&'a self, tileset: &'a TileSet<'a, T, N>) -> &'a T {
-        todo!()
-    }
-}
-
-impl<'a, T, const N: usize> GoBack<'a, T, N> for WaveTile<'a, T, N>
-where
-    T: BoundaryHash<N>,
-    DimN<N>: Dimension,
-    [usize; N]: NdIndex<DimN<N>>,
-{
-    fn go_back(&'a self, tileset: &'a TileSet<'a, T, N>) -> &'a T {
-        todo!()
-    }
-}
-
-impl<'a, T, const N: usize> GoBack<'a, T, N> for Tile<'a, T, N>
-where
-    T: BoundaryHash<N>,
-    DimN<N>: Dimension,
-    [usize; N]: NdIndex<DimN<N>>,
-{
-    fn go_back(&'a self, tileset: &'a TileSet<'a, T, N>) -> &'a T {
-        &tileset.data[self.id]
     }
 }

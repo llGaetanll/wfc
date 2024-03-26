@@ -1,12 +1,17 @@
 use std::marker::PhantomPinned;
 
 use ndarray::Dimension;
+use ndarray::NdIndex;
+
 use rand::Rng;
 
 use crate::bitset::BitSet;
 use crate::bitset::BitSlice;
+use crate::data::TileSet;
 use crate::tile::Tile;
 use crate::traits::BoundaryHash;
+use crate::traits::Merge;
+use crate::traits::Recover;
 use crate::types::DimN;
 
 pub struct WaveTile<'a, T, const N: usize>
@@ -161,5 +166,26 @@ where
         for tile in &self.possible_tiles {
             self.hashes.union(&tile.hashes);
         }
+    }
+}
+
+impl<'a, T, const N: usize> Recover<'a, T, N> for WaveTile<'a, T, N>
+where
+    T: BoundaryHash<N> + Clone + Merge,
+    DimN<N>: Dimension,
+    [usize; N]: NdIndex<DimN<N>>,
+{
+    /// Recovers the `T` for type `WaveTile<'a, T, N>`. Note that `T` must be `Merge`.
+    ///
+    /// In the future, this `Merge` requirement may be relaxed to only non-collapsed `WaveTile`s.
+    /// This is a temporary limitation of the API. TODO
+    fn recover(&'a self, tileset: &'a TileSet<'a, T, N>) -> T {
+        let ts: Vec<T> = self
+            .possible_tiles
+            .iter()
+            .map(|&tile| tile.recover(tileset))
+            .collect();
+
+        T::merge(&ts)
     }
 }

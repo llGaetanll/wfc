@@ -7,8 +7,12 @@ use ndarray::NdIndex;
 
 use crate::bitset::BitSet;
 use crate::bitset::BitSlice;
+use crate::data::TileSet;
 use crate::tile::Tile;
 use crate::traits::BoundaryHash;
+use crate::traits::Merge;
+use crate::traits::Recover;
+use crate::traits::Stitch;
 use crate::types::DimN;
 use crate::wavetile::WaveTile;
 
@@ -21,9 +25,13 @@ use crate::ext::ndarray::WaveArrayExt;
 /// `T` is the type of the element of the wave. All `WaveTile`s for a `Wave` hold the same type.
 pub struct Wave<'a, T, const N: usize>
 where
-    T: BoundaryHash<N>,
-    DimN<N>: Dimension, // ensures that [usize; N] is a Dimension implemented by ndarray
-    [usize; N]: NdIndex<DimN<N>>, // ensures that any [usize; N] is a valid index into the nd array
+    T: BoundaryHash<N> + Clone + Merge + Stitch<T, N>,
+
+    // ensures that [usize; N] is a Dimension implemented by ndarray
+    DimN<N>: Dimension,
+
+    // ensures that any [usize; N] is a valid index into the nd array
+    [usize; N]: NdIndex<DimN<N>>,
 {
     wave: Array<WaveTile<'a, T, N>, DimN<N>>,
 
@@ -32,9 +40,10 @@ where
     max_entropy: (usize, [usize; N]),
 }
 
+// TODO: maybe encode whether the `Wave` has collapsed as part of the type?
 impl<'a, T, const N: usize> Wave<'a, T, N>
 where
-    T: BoundaryHash<N>,
+    T: BoundaryHash<N> + Clone + Merge + Stitch<T, N>,
     DimN<N>: Dimension,
     [usize; N]: NdIndex<DimN<N>>,
 {
@@ -144,11 +153,12 @@ where
         wave
     }
 
-    /// Collapses the wave
-    pub fn collapse(&mut self, starting_index: Option<WfcNdIndex<N>>) {
+    /// Collapse the `Wave`
+    pub fn collapse(&mut self, starting_index: Option<WfcNdIndex<N>>) /* -> Option<T> */
+    {
         // if the wave is fully collapsed
         if self.max_entropy.0 < 2 {
-            return;
+            return; // Some(self.recover(tileset));
         };
 
         // get starting index
@@ -168,13 +178,20 @@ where
         // handle the rest of the wave
         loop {
             if self.max_entropy.0 < 2 {
-                break;
+                return; // Some(self.recover(tileset))
             };
 
             {
                 let index = self.min_entropy.1;
                 let wavetile = &mut self.wave[index];
-                wavetile.collapse();
+
+                match wavetile.collapse() {
+                    Some(_) => {}
+                    None => {
+                        // one of the `WaveTile`s ran out of options
+                        return; // None
+                    }
+                }
             }
 
             self.propagate(index);
@@ -227,5 +244,26 @@ where
         // update entropy
         self.min_entropy = (min_entropy, min_idx);
         self.max_entropy = (max_entropy, max_idx);
+    }
+}
+
+impl<'a, T, const N: usize> Recover<'a, T, N> for Wave<'a, T, N>
+where
+    T: BoundaryHash<N> + Clone + Merge + Stitch<T, N>,
+    DimN<N>: Dimension,
+    [usize; N]: NdIndex<DimN<N>>,
+{
+    /// Recovers the `T` from type `Wave<'a, T, N>`. Note that `T` must be `Merge` and `Stitch`.
+    ///
+    /// In the future, this `Merge` requirement may be relaxed to only non-collapsed `Wave`s. This
+    /// is a temporary limitation of the API. TODO
+    fn recover(&self, tileset: &TileSet<'a, T, N>) -> T {
+        let ts: Vec<T> = self.wave.iter().map(|wt| wt.recover(tileset)).collect();
+
+        let dim = self.wave.raw_dim();
+
+        let array = Array::from_shape_vec(dim, ts).unwrap();
+
+        T::stitch(&array)
     }
 }
