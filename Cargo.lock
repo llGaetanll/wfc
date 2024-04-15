@@ -963,16 +963,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "simple"
-version = "0.1.0"
-dependencies = [
- "image 0.25.0",
- "ndarray",
- "sdl2",
- "wfc",
-]
-
-[[package]]
 name = "smallvec"
 version = "1.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1055,6 +1045,16 @@ dependencies = [
  "flate2",
  "jpeg-decoder",
  "weezl",
+]
+
+[[package]]
+name = "tiles"
+version = "0.1.0"
+dependencies = [
+ "image 0.25.0",
+ "ndarray",
+ "sdl2",
+ "wfc",
 ]
 
 [[package]]

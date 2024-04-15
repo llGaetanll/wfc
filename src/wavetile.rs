@@ -24,11 +24,11 @@ where
     pub neighbor_hashes: [[Option<*const BitSlice>; 2]; N],
     pub entropy: usize,
 
-    pub possible_tiles: Vec<*const Tile<T, N>>,
-    filtered_tiles: Vec<*const Tile<T, N>>,
+    pub tiles: Vec<*const Tile<T, N>>,
 
     // (iter, index)
     filtered_tile_indices: Vec<(usize, usize)>,
+    start_index: usize, // cached for speed
 
     num_hashes: usize,
     pub parity: usize, // either 0 or 1
@@ -48,10 +48,11 @@ where
             neighbor_hashes: [[None; 2]; N],
             entropy,
 
-            possible_tiles: tiles,
+            tiles,
+
             // avoid reallocs during collapse
-            filtered_tiles: Vec::with_capacity(entropy),
             filtered_tile_indices: Vec::with_capacity(entropy),
+            start_index: 0,
 
             num_hashes,
             parity,
@@ -66,19 +67,17 @@ where
     pub fn collapse(&mut self, iter: usize) {
         assert!(self.entropy > 1, "called collapse on a collapsed WaveTile!");
 
+        let n = self.tiles.len();
+
         let mut rng = rand::thread_rng();
-        let idx = rng.gen_range(0..self.entropy);
+        let idx = rng.gen_range(self.start_index..n);
 
-        self.filtered_tile_indices.push((iter, self.filtered_tiles.len()));
+        self.filtered_tile_indices.push((iter, n - 1));
+        self.start_index = n - 1;
 
-        let tile = self.possible_tiles.swap_remove(idx);
-
-        // move al possible tiles to filtered tiles
-        self.filtered_tiles.append(&mut self.possible_tiles);
-        self.possible_tiles.push(tile);
+        self.tiles.swap(idx, n - 1);
 
         self.update_hashes();
-
         self.entropy = 1;
     }
 
@@ -92,26 +91,18 @@ where
         let alt_wavetile_bitset = self.get_alt_wavetile_bitset();
         self.hashes.intersect(&alt_wavetile_bitset);
 
-        let filtered_tiles = self.possible_tiles.iter().filter(|tile| {
+        let i = partition_in_place(&mut self.tiles[self.start_index..], |tile| {
             // SAFETY: `Vec` size is fixed before collapse
-            let tile = unsafe { &***tile };
+            let tile = unsafe { &**tile };
 
             !tile.hashes.is_subset(&self.hashes)
         });
 
-        self.filtered_tile_indices
-            .push((iter, self.filtered_tiles.len()));
-        self.filtered_tiles.extend(filtered_tiles);
-        self.possible_tiles.retain(|tile| {
-            // SAFETY: `Vec` size is fixed before collapse
-            let tile = unsafe { &**tile };
+        self.start_index += i;
 
-            tile.hashes.is_subset(&self.hashes)
-        });
+        self.filtered_tile_indices.push((iter, self.start_index));
+        self.entropy = self.tiles.len() - self.start_index;
 
-        self.entropy = self.possible_tiles.len();
-
-        // NOTE: mutates self's hashes
         self.update_hashes();
 
         if self.entropy == 0 {
@@ -124,25 +115,20 @@ where
     /// Rollback a `WaveTile` one step. This is called when some `WaveTile` runs out of options for
     /// possible `Tile`s
     pub fn rollback(&mut self, n: usize, current_iter: usize) {
-        let l = self.filtered_tile_indices.len();
-        let num_invalids = self
+        // TODO: there are invariants on this vector that we are not taking advantage of. It's
+        // probably possible to write this slightly faster
+        self.filtered_tile_indices
+            .retain(|(iter, _)| current_iter - iter > n);
+
+        // the number of invalidated tiles
+        let n = self
             .filtered_tile_indices
-            .iter()
-            .rev()
-            .take_while(|(iter, _)| current_iter - iter <= n)
-            .count();
+            .last()
+            .map(|&(_, i)| i)
+            .unwrap_or(0);
 
-        if num_invalids == 0 {
-            return
-        }
-
-        let (_, i) = self.filtered_tile_indices[l - num_invalids];
-        self.filtered_tile_indices.truncate(l - num_invalids);
-
-        let rollback_tiles = self.filtered_tiles.drain(i..);
-        self.possible_tiles.extend(rollback_tiles);
-
-        self.entropy = self.possible_tiles.len();
+        self.start_index = n;
+        self.entropy = self.tiles.len() - n;
         self.update_hashes();
     }
 
@@ -190,8 +176,7 @@ where
         // reset own bitsets
         self.hashes.zero();
 
-        // new bitsets is union of possible tiles
-        for tile in &self.possible_tiles {
+        for tile in &self.tiles[self.start_index..] {
             // SAFETY: `Vec` size is fixed
             let tile = unsafe { &**tile };
 
@@ -211,8 +196,7 @@ where
     /// In the future, this `Merge` requirement may be relaxed to only non-collapsed `WaveTile`s.
     /// This is a temporary limitation of the API. TODO
     pub fn recover(&self) -> T {
-        let ts: Vec<T> = self
-            .possible_tiles
+        let ts: Vec<T> = self.tiles[self.start_index..]
             .iter()
             .map(|&tile| {
                 // SAFETY: `Vec` size is fixed
@@ -223,5 +207,44 @@ where
             .collect();
 
         T::merge(&ts)
+    }
+}
+
+/// Takes `&mut [T]` and a predicate `P: FnMut(&T) -> bool` and partitions the list according to
+/// the predicate. Swaps elements of the list such that all elements satisfying `P` appear before
+/// any element not satisfying `P`.
+///
+/// The index `i` returned by the function always points at the first element for which `P` is false.
+/// Note that if `P` is trivial, then `i = |list|` points outside the list.
+pub fn partition_in_place<T, P>(list: &mut [T], mut predicate: P) -> usize
+where
+    P: FnMut(&T) -> bool,
+{
+    if list.is_empty() {
+        return 0;
+    }
+
+    let (mut lo, mut hi) = (0, list.len() - 1);
+
+    while lo < hi {
+        if predicate(&list[lo]) {
+            lo += 1;
+            continue;
+        }
+
+        if !predicate(&list[hi]) {
+            hi -= 1;
+            continue;
+        }
+
+        list.swap(lo, hi);
+        lo += 1;
+        hi -= 1;
+    }
+
+    if predicate(&list[lo]) {
+        lo + 1
+    } else {
+        lo
     }
 }

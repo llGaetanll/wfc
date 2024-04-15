@@ -201,8 +201,6 @@ where
 
     /// Rollback the `Wave`. This is used when a `WaveTile` has ran out of possible `Tile`s.
     fn rollback(&mut self, iter: usize) {
-        println!("rolling back wave");
-
         let (mut min_entropy, mut min_idx) = (usize::MAX, 0);
         let (mut max_entropy, mut max_idx) = (0, 0);
 

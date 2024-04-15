@@ -16,7 +16,7 @@ fn main() {
     let mut tileset = params.tileset();
     tileset.with_rots().with_flips();
 
-    let mut wave = tileset.wave(Ix2(20, 20));
+    let mut wave = tileset.wave(Ix2(60, 60));
 
     let t0 = SystemTime::now();
     wave.collapse(None);
