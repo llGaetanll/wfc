@@ -1,5 +1,3 @@
-use ndarray::Dimension;
-use ndarray::NdIndex;
 use rand::Rng;
 
 use crate::bitset::BitSet;
@@ -7,7 +5,6 @@ use crate::bitset::BitSlice;
 use crate::tile::Tile;
 use crate::traits::BoundaryHash;
 use crate::traits::Merge;
-use crate::types::DimN;
 
 #[derive(Debug)]
 pub enum WaveTileError {
@@ -18,7 +15,6 @@ pub enum WaveTileError {
 pub struct WaveTile<T, const N: usize>
 where
     T: BoundaryHash<N>,
-    DimN<N>: Dimension,
 {
     pub hashes: BitSet,
     pub neighbor_hashes: [[Option<*const BitSlice>; 2]; N],
@@ -37,7 +33,6 @@ where
 impl<T, const N: usize> WaveTile<T, N>
 where
     T: BoundaryHash<N>,
-    DimN<N>: Dimension,
 {
     /// Create a new `WaveTile`
     pub fn new(tiles: Vec<*const Tile<T, N>>, num_hashes: usize, parity: usize) -> Self {
@@ -188,8 +183,6 @@ where
 impl<T, const N: usize> WaveTile<T, N>
 where
     T: BoundaryHash<N> + Clone + Merge,
-    DimN<N>: Dimension,
-    [usize; N]: NdIndex<DimN<N>>,
 {
     /// Recovers the `T` for type `WaveTile<T, N>`. Note that `T` must be `Merge`.
     ///

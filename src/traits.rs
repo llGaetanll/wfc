@@ -39,8 +39,6 @@ where
 
 /// A trait to characterize types with a `Hash` boundary
 pub trait BoundaryHash<const N: usize>: Hash
-where
-    DimN<N>: Dimension,
 {
     fn boundary_hashes(&self) -> [[u64; 2]; N];
 }
@@ -188,8 +186,6 @@ where
 // NOTE: It is not clear to me at the moment whether the output type should also be `T`. In every
 // scenario that I can imagine, it is, but maybe this is not always the case.
 pub trait Stitch<T, const N: usize>
-where
-    DimN<N>: Dimension,
 {
     fn stitch(xs: &Array<T, DimN<N>>) -> T;
 }

@@ -1,5 +1,4 @@
 use ndarray::Dimension;
-use ndarray::NdIndex;
 
 use crate::bitset::BitSet;
 use crate::traits::BoundaryHash;
@@ -8,7 +7,6 @@ use crate::types::DimN;
 pub struct Tile<T, const N: usize>
 where
     T: BoundaryHash<N>,
-    DimN<N>: Dimension,
 {
     data: T,
 
@@ -33,8 +31,6 @@ where
 impl<T, const N: usize> Tile<T, N>
 where
     T: BoundaryHash<N> + Clone,
-    DimN<N>: Dimension,
-    [usize; N]: NdIndex<DimN<N>>,
 {
     /// Recover the `T` for type `Tile<T, N>`.
     pub fn recover(&self) -> T {
