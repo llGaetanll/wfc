@@ -1,20 +1,21 @@
-use std::marker::PhantomPinned;
-
 use ndarray::Dimension;
 use ndarray::NdIndex;
-
 use rand::Rng;
 
 use crate::bitset::BitSet;
 use crate::bitset::BitSlice;
-use crate::data::TileSet;
 use crate::tile::Tile;
 use crate::traits::BoundaryHash;
 use crate::traits::Merge;
-use crate::traits::Recover;
 use crate::types::DimN;
 
-pub struct WaveTile<'a, T, const N: usize>
+#[derive(Debug)]
+pub enum WaveTileError {
+    OutOfTiles,
+    RollbackOOB,
+}
+
+pub struct WaveTile<T, const N: usize>
 where
     T: BoundaryHash<N>,
     DimN<N>: Dimension,
@@ -23,86 +24,131 @@ where
     pub neighbor_hashes: [[Option<*const BitSlice>; 2]; N],
     pub entropy: usize,
 
-    possible_tiles: Vec<&'a Tile<'a, T, N>>,
-    filtered_tiles: Vec<&'a Tile<'a, T, N>>,
-    filtered_tile_indices: Vec<usize>,
+    pub possible_tiles: Vec<*const Tile<T, N>>,
+    filtered_tiles: Vec<*const Tile<T, N>>,
+
+    // (iter, index)
+    filtered_tile_indices: Vec<(usize, usize)>,
 
     num_hashes: usize,
-    parity: usize, // either 0 or 1
-
-    _pin: PhantomPinned,
+    pub parity: usize, // either 0 or 1
 }
 
-impl<'a, T, const N: usize> WaveTile<'a, T, N>
+impl<T, const N: usize> WaveTile<T, N>
 where
     T: BoundaryHash<N>,
     DimN<N>: Dimension,
 {
     /// Create a new `WaveTile`
-    pub fn new(
-        tiles: Vec<&'a Tile<'a, T, N>>,
-        hashes: BitSet,
-        num_hashes: usize,
-        parity: usize,
-    ) -> Self {
+    pub fn new(tiles: Vec<*const Tile<T, N>>, num_hashes: usize, parity: usize) -> Self {
         let entropy = tiles.len();
 
-        WaveTile {
-            possible_tiles: tiles,
-            // avoid reallocs at runtime
-            filtered_tiles: Vec::with_capacity(entropy),
-            filtered_tile_indices: Vec::with_capacity(entropy),
-            num_hashes,
-            hashes,
+        let mut wavetile = WaveTile {
+            hashes: BitSet::zeros(2 * N * num_hashes),
             neighbor_hashes: [[None; 2]; N],
             entropy,
+
+            possible_tiles: tiles,
+            // avoid reallocs during collapse
+            filtered_tiles: Vec::with_capacity(entropy),
+            filtered_tile_indices: Vec::with_capacity(entropy),
+
+            num_hashes,
             parity,
-            _pin: PhantomPinned,
-        }
+        };
+
+        wavetile.update_hashes();
+
+        wavetile
     }
 
     /// Collapses a `WaveTile` to one of its possible tiles, at random.
-    pub fn collapse(&mut self) -> Option<()> {
-        if self.entropy < 1 {
-            return None;
-        }
+    pub fn collapse(&mut self, iter: usize) {
+        assert!(self.entropy > 1, "called collapse on a collapsed WaveTile!");
 
         let mut rng = rand::thread_rng();
         let idx = rng.gen_range(0..self.entropy);
 
-        let filtered_tiles = self
-            .possible_tiles
-            .iter()
-            .enumerate()
-            .filter_map(|(i, tile)| if i != idx { Some(tile) } else { None });
+        self.filtered_tile_indices.push((iter, self.filtered_tiles.len()));
 
-        self.filtered_tile_indices.push(self.filtered_tiles.len());
-        self.filtered_tiles.extend(filtered_tiles);
+        let tile = self.possible_tiles.swap_remove(idx);
 
-        let tile: &Tile<'a, T, N> = self.possible_tiles[idx];
-        self.possible_tiles.clear();
+        // move al possible tiles to filtered tiles
+        self.filtered_tiles.append(&mut self.possible_tiles);
         self.possible_tiles.push(tile);
 
         self.update_hashes();
 
         self.entropy = 1;
-
-        Some(())
     }
 
     /// Update the `possible_tiles` of the current `WaveTile`
-    pub fn update(&mut self) {
-        if self.entropy < 2 {
-            return;
+    pub fn update(&mut self, iter: usize) -> Result<(), WaveTileError> {
+        if self.entropy == 1 {
+            return Ok(());
         }
 
-        let hashes: BitSet = BitSet::new();
+        // new hashes are computed
+        let alt_wavetile_bitset = self.get_alt_wavetile_bitset();
+        self.hashes.intersect(&alt_wavetile_bitset);
 
-        // owned copy of the self.hashes
-        let mut hashes = std::mem::replace(&mut self.hashes, hashes);
+        let filtered_tiles = self.possible_tiles.iter().filter(|tile| {
+            // SAFETY: `Vec` size is fixed before collapse
+            let tile = unsafe { &***tile };
 
-        // prepare the correct wavetile hash
-        let mut alt_wavetile_bitset = BitSet::zeros(2 * N * self.num_hashes);
+            !tile.hashes.is_subset(&self.hashes)
+        });
+
+        self.filtered_tile_indices
+            .push((iter, self.filtered_tiles.len()));
+        self.filtered_tiles.extend(filtered_tiles);
+        self.possible_tiles.retain(|tile| {
+            // SAFETY: `Vec` size is fixed before collapse
+            let tile = unsafe { &**tile };
+
+            tile.hashes.is_subset(&self.hashes)
+        });
+
+        self.entropy = self.possible_tiles.len();
+
+        // NOTE: mutates self's hashes
+        self.update_hashes();
+
+        if self.entropy == 0 {
+            Err(WaveTileError::OutOfTiles)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Rollback a `WaveTile` one step. This is called when some `WaveTile` runs out of options for
+    /// possible `Tile`s
+    pub fn rollback(&mut self, n: usize, current_iter: usize) {
+        let l = self.filtered_tile_indices.len();
+        let num_invalids = self
+            .filtered_tile_indices
+            .iter()
+            .rev()
+            .take_while(|(iter, _)| current_iter - iter <= n)
+            .count();
+
+        if num_invalids == 0 {
+            return
+        }
+
+        let (_, i) = self.filtered_tile_indices[l - num_invalids];
+        self.filtered_tile_indices.truncate(l - num_invalids);
+
+        let rollback_tiles = self.filtered_tiles.drain(i..);
+        self.possible_tiles.extend(rollback_tiles);
+
+        self.entropy = self.possible_tiles.len();
+        self.update_hashes();
+    }
+
+    // Compute a `BitSet` composed of the neighbor's `BitSlice`s
+    fn get_alt_wavetile_bitset(&self) -> BitSet {
+        let mut bitset = BitSet::zeros(2 * N * self.num_hashes);
 
         let odd = self.parity;
         let even = 1 - self.parity;
@@ -110,7 +156,7 @@ where
         for (axis, [left, right]) in self.neighbor_hashes.iter().enumerate() {
             let right_hashes = match right {
                 Some(hashes) => {
-                    // SAFETY: Wave is pinned
+                    // SAFETY: `Vec`s are not resized during collapse and so don't move
                     let hashes = unsafe { &**hashes };
                     hashes.mask((2 * axis + even) * self.num_hashes, self.num_hashes)
                 }
@@ -122,7 +168,7 @@ where
 
             let left_hashes = match left {
                 Some(hashes) => {
-                    // SAFETY: Wave is pinned
+                    // SAFETY: `Vec`s are not resized during collapse and so don't move
                     let hashes = unsafe { &**hashes };
                     hashes.mask((2 * axis + odd) * self.num_hashes, self.num_hashes)
                 }
@@ -132,28 +178,10 @@ where
                 }
             };
 
-            alt_wavetile_bitset.union(&right_hashes).union(&left_hashes);
+            bitset.union(&right_hashes).union(&left_hashes);
         }
 
-        hashes.intersect(&alt_wavetile_bitset);
-
-        // new hashes are computed
-        self.hashes = hashes;
-
-        let filtered_tiles = self
-            .possible_tiles
-            .iter()
-            .filter(|tile| !tile.hashes.is_subset(&self.hashes));
-
-        self.filtered_tile_indices.push(self.filtered_tiles.len());
-        self.filtered_tiles.extend(filtered_tiles);
-        self.possible_tiles
-            .retain(|tile| tile.hashes.is_subset(&self.hashes));
-
-        self.entropy = self.possible_tiles.len();
-
-        // NOTE: mutates self's hashes
-        self.update_hashes();
+        bitset
     }
 
     /// Given a list of `tile`s that this WaveTile can be, this precomputes the list of valid
@@ -164,26 +192,34 @@ where
 
         // new bitsets is union of possible tiles
         for tile in &self.possible_tiles {
+            // SAFETY: `Vec` size is fixed
+            let tile = unsafe { &**tile };
+
             self.hashes.union(&tile.hashes);
         }
     }
 }
 
-impl<'a, T, const N: usize> Recover<'a, T, N> for WaveTile<'a, T, N>
+impl<T, const N: usize> WaveTile<T, N>
 where
     T: BoundaryHash<N> + Clone + Merge,
     DimN<N>: Dimension,
     [usize; N]: NdIndex<DimN<N>>,
 {
-    /// Recovers the `T` for type `WaveTile<'a, T, N>`. Note that `T` must be `Merge`.
+    /// Recovers the `T` for type `WaveTile<T, N>`. Note that `T` must be `Merge`.
     ///
     /// In the future, this `Merge` requirement may be relaxed to only non-collapsed `WaveTile`s.
     /// This is a temporary limitation of the API. TODO
-    fn recover(&'a self, tileset: &'a TileSet<'a, T, N>) -> T {
+    pub fn recover(&self) -> T {
         let ts: Vec<T> = self
             .possible_tiles
             .iter()
-            .map(|&tile| tile.recover(tileset))
+            .map(|&tile| {
+                // SAFETY: `Vec` size is fixed
+                let tile = unsafe { &*tile };
+
+                tile.recover()
+            })
             .collect();
 
         T::merge(&ts)

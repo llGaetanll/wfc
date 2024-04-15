@@ -1,7 +1,6 @@
 use std::array::from_fn;
 use std::mem;
 
-use image::GenericImage;
 use image::ImageBuffer;
 use image::Pixel;
 
@@ -116,14 +115,14 @@ pub trait ArrayToImageExt<P>
 where
     P: Pixel,
 {
-    fn to_image(self) -> Option<impl GenericImage<Pixel = P>>;
+    fn to_image(self) -> Option<ImageBuffer<P, Vec<<P as Pixel>::Subpixel>>>;
 }
 
 impl<P> ArrayToImageExt<P> for Array2<P>
 where
     P: Pixel,
 {
-    fn to_image(self) -> Option<impl GenericImage<Pixel = P>> {
+    fn to_image(self) -> Option<ImageBuffer<P, Vec<<P as Pixel>::Subpixel>>> {
         let s = self.shape();
         let (w, h) = (s[0], s[1]);
         let c = P::CHANNEL_COUNT as usize;

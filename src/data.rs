@@ -1,7 +1,6 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::pin::Pin;
 
 use ndarray::Dimension;
 use ndarray::NdIndex;
@@ -14,67 +13,60 @@ use crate::traits::Stitch;
 use crate::types::DimN;
 use crate::wave::Wave;
 
-pub struct TileSet<'a, T, const N: usize>
+pub struct TileSet<T, const N: usize>
 where
     T: BoundaryHash<N>,
     DimN<N>: Dimension,
 {
     pub data: Vec<T>,
 
-    pub tiles_lr: Vec<Tile<'a, T, N>>,
-    pub tiles_rl: Vec<Tile<'a, T, N>>,
+    pub tiles_lr: Vec<Tile<T, N>>,
+    pub tiles_rl: Vec<Tile<T, N>>,
 
-    // sidelength of the tile
-    tile_size: usize,
+    pub tile_size: usize
 }
 
-impl<'a, T, const N: usize> TileSet<'a, T, N>
+impl<T, const N: usize> TileSet<T, N>
 where
     T: BoundaryHash<N>,
     DimN<N>: Dimension,
 {
     pub fn new(data: Vec<T>, tile_size: usize) -> Self {
-        let mut tileset = TileSet {
+        TileSet {
             data,
             tiles_lr: vec![],
             tiles_rl: vec![],
-            tile_size,
-        };
-
-        tileset.compute_hashes();
-
-        tileset
+            tile_size
+        }
     }
-
-    // compute the list of unique hashes of the `TileSet`
-    pub fn compute_hashes(&mut self) {}
 }
 
-pub trait Rotations<'a, T, const N: usize>
+pub trait Rotations<T, const N: usize>
 where
     T: Hash + Clone,
     DimN<N>: Dimension,
 {
-    fn with_rots(&'a mut self) -> &'a mut Self;
+    fn with_rots(&mut self) -> &mut Self;
 }
 
-pub trait Flips<'a, T, const N: usize>
+pub trait Flips<T, const N: usize>
 where
     T: Hash + Clone,
     DimN<N>: Dimension,
 {
-    fn with_flips(&'a mut self) -> &'a mut Self;
+    fn with_flips(&mut self) -> &mut Self;
 }
 
-impl<'a, T, const N: usize> TileSet<'a, T, N>
+impl<T, const N: usize> TileSet<T, N>
 where
     T: BoundaryHash<N> + Clone + Merge + Stitch<T, N>,
     DimN<N>: Dimension,
     [usize; N]: NdIndex<DimN<N>>,
 {
-    // FIXME: exposing DimN<N> leaks ndarray API
-    pub fn wave(&mut self, shape: DimN<N>) -> Pin<Box<Wave<'_, T, N>>> {
+    pub fn wave(&mut self, shape: DimN<N>) -> Wave<T, N> {
         let mut hash_index: usize = 0;
+
+        // key: hash, value: index into `tile_hashes`
         let mut unique_hashes: HashMap<u64, usize> = HashMap::new();
         let mut tile_hashes = Vec::with_capacity(self.data.len());
 
@@ -92,10 +84,9 @@ where
             }
         }
 
-        let num_tiles = self.data.len();
         let num_hashes = unique_hashes.len();
 
-        for (i, hashes) in tile_hashes.iter().enumerate() {
+        for (hashes, data) in tile_hashes.iter().zip(&self.data) {
             let mut hashes_lr = BitSet::zeros(2 * N * num_hashes);
             let mut hashes_rl = BitSet::zeros(2 * N * num_hashes);
 
@@ -125,10 +116,10 @@ where
                 hashes_rl.on((2 * i) * num_hashes + index_right);
             }
 
-            self.tiles_lr.push(Tile::new(i, hashes_lr, self.tile_size));
-            self.tiles_rl.push(Tile::new(i, hashes_rl, self.tile_size));
+            self.tiles_lr.push(Tile::new(data.clone(), hashes_lr, self.tile_size));
+            self.tiles_rl.push(Tile::new(data.clone(), hashes_rl, self.tile_size));
         }
 
-        Wave::new(shape, num_hashes, &self.tiles_lr, &self.tiles_rl, num_tiles)
+        Wave::new(&self.tiles_lr, &self.tiles_rl, shape, num_hashes)
     }
 }

@@ -1,17 +1,12 @@
-use std::pin::Pin;
-
 use ndarray::Array;
 use ndarray::Dimension;
 use ndarray::IntoDimension;
 use ndarray::NdIndex;
 
-use crate::bitset::BitSet;
 use crate::bitset::BitSlice;
-use crate::data::TileSet;
 use crate::tile::Tile;
 use crate::traits::BoundaryHash;
 use crate::traits::Merge;
-use crate::traits::Recover;
 use crate::traits::Stitch;
 use crate::types::DimN;
 use crate::wavetile::WaveTile;
@@ -19,21 +14,13 @@ use crate::wavetile::WaveTile;
 use crate::ext::ndarray::NdIndex as WfcNdIndex;
 use crate::ext::ndarray::WaveArrayExt;
 
-/// A `Wave` is an `N` dimensional array of `WaveTile`s.
-///
-/// `N` is the dimension of the wave, as well as the dimension of each element of each `WaveTile`.
-/// `T` is the type of the element of the wave. All `WaveTile`s for a `Wave` hold the same type.
-pub struct Wave<'a, T, const N: usize>
+pub struct Wave<T, const N: usize>
 where
     T: BoundaryHash<N> + Clone + Merge + Stitch<T, N>,
-
-    // ensures that [usize; N] is a Dimension implemented by ndarray
     DimN<N>: Dimension,
-
-    // ensures that any [usize; N] is a valid index into the nd array
     [usize; N]: NdIndex<DimN<N>>,
 {
-    wave: Array<WaveTile<'a, T, N>, DimN<N>>,
+    pub wave: Array<WaveTile<T, N>, DimN<N>>,
 
     // cached to speed up propagate
     min_entropy: (usize, [usize; N]),
@@ -41,62 +28,47 @@ where
 }
 
 // TODO: maybe encode whether the `Wave` has collapsed as part of the type?
-impl<'a, T, const N: usize> Wave<'a, T, N>
+impl<T, const N: usize> Wave<T, N>
 where
     T: BoundaryHash<N> + Clone + Merge + Stitch<T, N>,
     DimN<N>: Dimension,
     [usize; N]: NdIndex<DimN<N>>,
 {
     pub fn new(
+        tiles_lr: &[Tile<T, N>],
+        tiles_rl: &[Tile<T, N>],
         shape: DimN<N>,
         num_hashes: usize,
-        tiles_lr: &'a [Tile<'a, T, N>],
-        tiles_rl: &'a [Tile<'a, T, N>],
-        num_tiles: usize,
-    ) -> Pin<Box<Self>> {
-        let tiles_lr: Vec<&'a Tile<'a, T, N>> = tiles_lr.iter().collect();
-        let tiles_rl: Vec<&'a Tile<'a, T, N>> = tiles_rl.iter().collect();
+    ) -> Self {
+        let num_tiles = tiles_lr.len();
 
-        let bitset_lr: Vec<&BitSet> = tiles_lr.iter().map(|tile| &tile.hashes).collect();
-        let bitset_rl: Vec<&BitSet> = tiles_rl.iter().map(|tile| &tile.hashes).collect();
+        let tiles_lr: Vec<*const Tile<T, N>> = tiles_lr
+            .iter()
+            .map(|tile| tile as *const Tile<T, N>)
+            .collect();
+        let tiles_rl: Vec<*const Tile<T, N>> = tiles_rl
+            .iter()
+            .map(|tile| tile as *const Tile<T, N>)
+            .collect();
 
-        let wavetile_bitset_lr: BitSet = Self::merge_tile_bitsets(bitset_lr, num_hashes);
-        let wavetile_bitset_rl: BitSet = Self::merge_tile_bitsets(bitset_rl, num_hashes);
-
-        let wave = Wave {
-            min_entropy: (num_tiles, [0; N]),
-            max_entropy: (num_tiles, [0; N]),
-
+        let mut wave = Wave {
             wave: Array::from_shape_fn(shape, |i| {
                 let mut parity: usize = i.into_dimension().as_array_view().sum();
                 parity %= 2;
 
-                // NOTE: this parity trick *does not* work for any wrapping wave. Maybe encode this
-                // into the type of the wave?
-                if parity % 2 == 0 {
-                    WaveTile::new(
-                        tiles_lr.clone(),
-                        wavetile_bitset_lr.clone(),
-                        num_hashes,
-                        parity,
-                    )
+                if parity == 0 {
+                    WaveTile::new(tiles_lr.clone(), num_hashes, parity)
                 } else {
-                    WaveTile::new(
-                        tiles_rl.clone(),
-                        wavetile_bitset_rl.clone(),
-                        num_hashes,
-                        parity,
-                    )
+                    WaveTile::new(tiles_rl.clone(), num_hashes, parity)
                 }
             }),
-        };
 
-        // we must put our wave in a pinned box to ensure that its contents are not moved.
-        let mut wave = Box::pin(wave);
+            min_entropy: (num_tiles, [0; N]),
+            max_entropy: (num_tiles, [0; N]),
+        };
 
         // for each WaveTile, we need to get a list of pointers to its neighbors. This is why we
         // pinned the box.
-
         let get_wavetile_neighbor_bitsets = |index: usize| -> [[Option<*const BitSlice>; 2]; N] {
             let index = wave.wave.get_nd_index(index);
             let neighbor_indices = wave.wave.get_index_neighbors(index);
@@ -142,12 +114,14 @@ where
         //      interior mutability, we can't mutate a WaveTile in the Wave without mutating the
         //      Wave itself. But this requires a mutable reference to wave.wave, hence it must be
         //      done independently from the pointer collection step.
-        for (wavetile, neighbor_bitsets) in wave
-            .wave
-            .iter_mut()
-            .zip(wavetile_bitsets_neighbors.into_iter())
         {
-            wavetile.neighbor_hashes = neighbor_bitsets;
+            for (wavetile, neighbor_bitsets) in wave
+                .wave
+                .iter_mut()
+                .zip(wavetile_bitsets_neighbors.into_iter())
+            {
+                wavetile.neighbor_hashes = neighbor_bitsets;
+            }
         }
 
         wave
@@ -162,59 +136,75 @@ where
         };
 
         // get starting index
-        let index = match starting_index {
+        let mut index = match starting_index {
             Some(index) => index,
             None => self.min_entropy.1,
         };
 
-        // collapse the starting tile
-        {
-            let wavetile = &mut self.wave[index];
-            wavetile.collapse();
-        }
-
-        self.propagate(index);
-
         // handle the rest of the wave
-        loop {
+        for i in 0.. {
             if self.max_entropy.0 < 2 {
-                return; // Some(self.recover(tileset))
+                return;
             };
 
-            {
-                let index = self.min_entropy.1;
-                let wavetile = &mut self.wave[index];
+            let wavetile = &mut self.wave[index];
 
-                match wavetile.collapse() {
-                    Some(_) => {}
-                    None => {
-                        // one of the `WaveTile`s ran out of options
-                        return; // None
-                    }
-                }
-            }
+            // since the sets acted on by `collapse` and `propagate` are disjoint, it's ok to make
+            // these the same iteration.
+            wavetile.collapse(i);
+            self.propagate(index, i);
 
-            self.propagate(index);
+            index = self.min_entropy.1;
         }
-    }
-
-    // Computes the total union of the list of bit sets in `tile_hashes`.
-    fn merge_tile_bitsets(tile_bitsets: Vec<&BitSet>, num_hashes: usize) -> BitSet {
-        let mut bitset = BitSet::zeros(2 * N * num_hashes);
-
-        for tile_bitset in tile_bitsets {
-            bitset.union(tile_bitset);
-        }
-
-        bitset
     }
 
     /// Propagates the wave from an index `start`
     /// TODO:
     ///  - stop propagation if neighboring tiles haven't updated
-    fn propagate(&mut self, start: WfcNdIndex<N>) {
-        let (mut min_entropy, mut min_idx) = (usize::MAX, self.min_entropy.1);
-        let (mut max_entropy, mut max_idx) = (0, self.max_entropy.1);
+    fn propagate(&mut self, start: WfcNdIndex<N>, iter: usize) {
+        let mut min_entropy = (usize::MAX, self.min_entropy.1);
+        let mut max_entropy = (0, self.max_entropy.1);
+
+        let mut upd_entropy = |entropy, index| {
+            if entropy > 1 && entropy < min_entropy.0 {
+                min_entropy.0 = entropy;
+                min_entropy.1 = index;
+            }
+
+            if entropy > max_entropy.0 {
+                max_entropy.0 = entropy;
+                max_entropy.1 = index;
+            }
+        };
+
+        let index_groups = self.wave.get_index_groups(start);
+        for index_group in index_groups.into_iter() {
+            for index in index_group.into_iter() {
+                match self.wave[index].update(iter) {
+                    Ok(_) => {
+                        // update entropy bounds
+                        let entropy = self.wave[index].entropy;
+                        upd_entropy(entropy, index);
+                    }
+                    Err(_) => {
+                        self.rollback(iter);
+                        return;
+                    }
+                };
+            }
+        }
+
+        // update entropy
+        self.min_entropy = min_entropy;
+        self.max_entropy = max_entropy;
+    }
+
+    /// Rollback the `Wave`. This is used when a `WaveTile` has ran out of possible `Tile`s.
+    fn rollback(&mut self, iter: usize) {
+        println!("rolling back wave");
+
+        let (mut min_entropy, mut min_idx) = (usize::MAX, 0);
+        let (mut max_entropy, mut max_idx) = (0, 0);
 
         let mut upd_entropy = |entropy, index| {
             if entropy > 1 && entropy < min_entropy {
@@ -228,26 +218,18 @@ where
             }
         };
 
-        let index_groups = self.wave.get_index_groups(start);
-        for index_group in index_groups.into_iter() {
-            for index in index_group.into_iter() {
-                // TODO: catch if a wavetile has no more options
-                // at this stage instead of on collapse?
-                self.wave[index].update();
-
-                // update entropy bounds
-                let entropy = self.wave[index].entropy;
-                upd_entropy(entropy, index);
-            }
+        for (i, wavetile) in self.wave.iter_mut().enumerate() {
+            wavetile.rollback(3, iter);
+            upd_entropy(wavetile.entropy, i);
         }
 
         // update entropy
-        self.min_entropy = (min_entropy, min_idx);
-        self.max_entropy = (max_entropy, max_idx);
+        self.min_entropy = (min_entropy, self.wave.get_nd_index(min_idx));
+        self.max_entropy = (max_entropy, self.wave.get_nd_index(max_idx));
     }
 }
 
-impl<'a, T, const N: usize> Recover<'a, T, N> for Wave<'a, T, N>
+impl<T, const N: usize> Wave<T, N>
 where
     T: BoundaryHash<N> + Clone + Merge + Stitch<T, N>,
     DimN<N>: Dimension,
@@ -257,8 +239,8 @@ where
     ///
     /// In the future, this `Merge` requirement may be relaxed to only non-collapsed `Wave`s. This
     /// is a temporary limitation of the API. TODO
-    fn recover(&self, tileset: &TileSet<'a, T, N>) -> T {
-        let ts: Vec<T> = self.wave.iter().map(|wt| wt.recover(tileset)).collect();
+    pub fn recover(&self) -> T {
+        let ts: Vec<T> = self.wave.iter().map(|wt| wt.recover()).collect();
 
         let dim = self.wave.raw_dim();
 

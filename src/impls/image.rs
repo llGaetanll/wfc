@@ -12,30 +12,26 @@ use image::Rgb;
 use image::Rgba;
 use ndarray::Array2;
 
-use crate::data::Flips;
-use crate::data::Rotations;
 use crate::data::TileSet;
-
 use crate::ext::image::ImageToArrayExt;
 use crate::ext::ndarray::ArrayTransformations;
+use crate::traits::Flips;
 use crate::traits::Merge;
+use crate::traits::Rotations;
 
 pub struct ImageParams<I: GenericImage> {
-    /// The image to pass to the `TileSet`
     pub image: I,
-
-    /// The sidelength of the sliding window to perform on the image
-    pub win_size: usize,
+    pub win_size: usize
 }
 
 impl<Sp, P, I> ImageParams<I>
 where
     Sp: Hash,
-    P: Pixel<Subpixel = Sp> + Hash,
+    P: Pixel<Subpixel = Sp> + Hash + Merge,
     I: GenericImage<Pixel = P>,
 {
     /// Construct a `TileSet` from an `image` and `win_size`.
-    pub fn tile_set(&self) -> TileSet<Array2<P>, 2> {
+    pub fn tileset(&self) -> TileSet<Array2<P>, 2> {
         let image = &self.image;
 
         let pixels: Array2<P> = image.to_array().unwrap();
@@ -62,10 +58,10 @@ where
     }
 }
 
-impl<'a, Sp, P> TileSet<'a, Array2<P>, 2>
+impl<Sp, P> TileSet<Array2<P>, 2>
 where
     Sp: Hash,
-    P: Pixel<Subpixel = Sp> + Hash,
+    P: Pixel<Subpixel = Sp> + Hash + Merge,
 {
     /// Constructs a `TileSet` from a list of images.
     ///
@@ -103,12 +99,12 @@ where
     }
 }
 
-impl<'a, Sp, P> Rotations<'a, Array2<P>, 2> for TileSet<'a, Array2<P>, 2>
+impl<Sp, P> Rotations<Array2<P>, 2> for TileSet<Array2<P>, 2>
 where
     Sp: Clone + Hash,
-    P: Pixel<Subpixel = Sp> + Hash,
+    P: Pixel<Subpixel = Sp> + Hash + Merge,
 {
-    fn with_rots(&'a mut self) -> &mut TileSet<'a, Array2<P>, 2> {
+    fn with_rots(&mut self) -> &mut TileSet<Array2<P>, 2> {
         let mut tiles: HashMap<u64, Array2<P>> = HashMap::new();
 
         for tile in &self.data {
@@ -127,18 +123,16 @@ where
 
         self.data = tiles.into_values().collect::<Vec<_>>();
 
-        self.compute_hashes();
-
         self
     }
 }
 
-impl<'a, Sp, P> Flips<'a, Array2<P>, 2> for TileSet<'a, Array2<P>, 2>
+impl<Sp, P> Flips<Array2<P>, 2> for TileSet<Array2<P>, 2>
 where
     Sp: Clone + Hash,
-    P: Pixel<Subpixel = Sp> + Hash,
+    P: Pixel<Subpixel = Sp> + Hash + Merge,
 {
-    fn with_flips(&'a mut self) -> &'a mut TileSet<'a, Array2<P>, 2> {
+    fn with_flips(&mut self) -> &mut TileSet<Array2<P>, 2> {
         let mut tiles: HashMap<u64, Array2<P>> = HashMap::new();
 
         for tile in &self.data {
@@ -156,8 +150,6 @@ where
         }
 
         self.data = tiles.into_values().collect::<Vec<_>>();
-
-        self.compute_hashes();
 
         self
     }
@@ -218,3 +210,26 @@ impl<T: Primitive> Merge for Rgba<T> {
         Rgba::from(px)
     }
 }
+
+/*
+impl<P> Recover<Array2<P>, 2> for Wave<Array2<P>, 2>
+where
+    P: Pixel + Merge + Stitch<Array2<P>, 2> + Hash,
+{
+    /// Recovers the `T` from type `Wave<'a, T, N>`. Note that `T` must be `Merge` and `Stitch`.
+    ///
+    /// In the future, this `Merge` requirement may be relaxed to only non-collapsed `Wave`s. This
+    /// is a temporary limitation of the API. TODO
+    fn recover(&self) -> Option<impl GenericImage<Pixel = P>> {
+        let ts: Vec<Array2<P>> = self.wave.iter().map(|wt| wt.recover()).collect();
+
+        let dim = self.wave.raw_dim();
+
+        let array = Array2::from_shape_vec(dim, ts).unwrap();
+
+        let arr = Array2::<P>::stitch(&array);
+
+        arr.to_image()
+    }
+}
+*/

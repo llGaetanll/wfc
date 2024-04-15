@@ -3,9 +3,9 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 
 use ndarray::Ix2;
-use wfc::data::Flips;
-use wfc::data::Rotations;
 use wfc::data::TileSet;
+use wfc::traits::Flips;
+use wfc::traits::Rotations;
 
 fn main() {
     let tiles_path = PathBuf::from("examples/tiles/tileset/");
@@ -18,7 +18,9 @@ fn main() {
         .collect();
 
     let mut tile_set = TileSet::from_images(images);
-    let mut wave = tile_set.with_rots().with_flips().wave(Ix2(10, 10));
+    let wave = tile_set.with_rots().with_flips().wave(Ix2(10, 10));
+
+    let mut wave = wave;
 
     let t0 = SystemTime::now();
     wave.collapse(None);

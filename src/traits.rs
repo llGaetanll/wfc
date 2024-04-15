@@ -19,8 +19,23 @@ use ndarray::SliceArg;
 use ndarray::SliceInfo;
 use ndarray::SliceInfoElem;
 
-use crate::data::TileSet;
 use crate::types::DimN;
+
+pub trait Rotations<T, const N: usize>
+where
+    T: Hash + Clone,
+    DimN<N>: Dimension,
+{
+    fn with_rots(&mut self) -> &mut Self;
+}
+
+pub trait Flips<T, const N: usize>
+where
+    T: Hash + Clone,
+    DimN<N>: Dimension,
+{
+    fn with_flips(&mut self) -> &mut Self;
+}
 
 /// A trait to characterize types with a `Hash` boundary
 pub trait BoundaryHash<const N: usize>: Hash
@@ -146,15 +161,17 @@ where
             })
             .collect();
 
-        let mut array = Array2::from_shape_vec((n, m), v).unwrap(); // won't fail
+        let mut array = Array2::from_shape_vec((m, n), v).unwrap(); // won't fail
         array.swap_axes(0, 1); // transpose in place
 
         let ts: Vec<T> = array
             .axis_iter(Axis(0))
             .map(|row| {
                 // I don't think this will fail though
+                let row = row.as_standard_layout();
                 let slice = row.as_slice().expect("was not in standard order!");
 
+                // merge pixel-wise
                 T::merge(slice)
             })
             .collect();
@@ -250,16 +267,17 @@ where
     }
 }
 
+/// TODO: update this comment
 /// Recover the `T`. This is used in the wave to convert back to the original type (i.e. produce
 /// the full picture output.)
 ///
 /// Note that `T` need be `Clone`. This is because wave function collapse may naturally use a
 /// `Tile` more than once, and so may need to access the underlying data (`T`) more than once as
-/// well. This however has no impact on performance, as the `Wave` doesn't actually really own a `T`.
-pub trait Recover<'a, T, const N: usize>
+/// well. This however has no impact on performance during collapse.
+pub trait Recover<T, const N: usize>
 where
     T: BoundaryHash<N> + Clone,
     DimN<N>: Dimension,
 {
-    fn recover(&'a self, tileset: &'a TileSet<'a, T, N>) -> T;
+    fn recover<U>(&self) -> U;
 }
