@@ -5,6 +5,7 @@ use crate::bitset::BitSlice;
 use crate::tile::Tile;
 use crate::traits::BoundaryHash;
 use crate::traits::Merge;
+use crate::traits::Recover;
 
 #[derive(Debug)]
 pub enum WaveTileError {
@@ -18,9 +19,9 @@ where
 {
     pub hashes: BitSet,
     pub neighbor_hashes: [[Option<*const BitSlice>; 2]; N],
-    pub entropy: usize,
 
     pub tiles: Vec<*const Tile<T, N>>,
+    pub entropy: usize,
 
     // (iter, index)
     filtered_tile_indices: Vec<(usize, usize)>,
@@ -180,7 +181,7 @@ where
     }
 }
 
-impl<T, const N: usize> WaveTile<T, N>
+impl<T, const N: usize> Recover<T, T, N> for WaveTile<T, N>
 where
     T: BoundaryHash<N> + Clone + Merge,
 {
@@ -188,7 +189,7 @@ where
     ///
     /// In the future, this `Merge` requirement may be relaxed to only non-collapsed `WaveTile`s.
     /// This is a temporary limitation of the API. TODO
-    pub fn recover(&self) -> T {
+    fn recover(&self) -> T {
         let ts: Vec<T> = self.tiles[self.start_index..]
             .iter()
             .map(|&tile| {

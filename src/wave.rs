@@ -7,6 +7,7 @@ use crate::bitset::BitSlice;
 use crate::tile::Tile;
 use crate::traits::BoundaryHash;
 use crate::traits::Merge;
+use crate::traits::Recover;
 use crate::traits::Stitch;
 use crate::types::DimN;
 use crate::wavetile::WaveTile;
@@ -178,8 +179,8 @@ where
         };
 
         let index_groups = self.wave.get_index_groups(start);
-        for index_group in index_groups.into_iter() {
-            for index in index_group.into_iter() {
+        for index_group in index_groups {
+            for index in index_group {
                 match self.wave[index].update(iter) {
                     Ok(_) => {
                         // update entropy bounds
@@ -227,17 +228,17 @@ where
     }
 }
 
-impl<T, const N: usize> Wave<T, N>
+impl<T, const N: usize> Recover<T, T, N> for Wave<T, N>
 where
     T: BoundaryHash<N> + Clone + Merge + Stitch<T, N>,
     DimN<N>: Dimension,
     [usize; N]: NdIndex<DimN<N>>,
 {
-    /// Recovers the `T` from type `Wave<'a, T, N>`. Note that `T` must be `Merge` and `Stitch`.
+    /// Recovers the `T` from type `Wave<T, N>`. Note that `T` must be `Merge` and `Stitch`.
     ///
     /// In the future, this `Merge` requirement may be relaxed to only non-collapsed `Wave`s. This
     /// is a temporary limitation of the API. TODO
-    pub fn recover(&self) -> T {
+    fn recover(&self) -> T {
         let ts: Vec<T> = self.wave.iter().map(|wt| wt.recover()).collect();
 
         let dim = self.wave.raw_dim();

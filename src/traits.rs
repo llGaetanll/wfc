@@ -38,8 +38,7 @@ where
 }
 
 /// A trait to characterize types with a `Hash` boundary
-pub trait BoundaryHash<const N: usize>: Hash
-{
+pub trait BoundaryHash<const N: usize>: Hash {
     fn boundary_hashes(&self) -> [[u64; 2]; N];
 }
 
@@ -185,8 +184,7 @@ where
 //
 // NOTE: It is not clear to me at the moment whether the output type should also be `T`. In every
 // scenario that I can imagine, it is, but maybe this is not always the case.
-pub trait Stitch<T, const N: usize>
-{
+pub trait Stitch<T, const N: usize> {
     fn stitch(xs: &Array<T, DimN<N>>) -> T;
 }
 
@@ -263,17 +261,15 @@ where
     }
 }
 
-/// TODO: update this comment
 /// Recover the `T`. This is used in the wave to convert back to the original type (i.e. produce
 /// the full picture output.)
 ///
 /// Note that `T` need be `Clone`. This is because wave function collapse may naturally use a
 /// `Tile` more than once, and so may need to access the underlying data (`T`) more than once as
 /// well. This however has no impact on performance during collapse.
-pub trait Recover<T, const N: usize>
+pub trait Recover<T, U, const N: usize>
 where
     T: BoundaryHash<N> + Clone,
-    DimN<N>: Dimension,
 {
-    fn recover<U>(&self) -> U;
+    fn recover(&self) -> U;
 }

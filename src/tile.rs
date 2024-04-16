@@ -1,8 +1,6 @@
-use ndarray::Dimension;
-
 use crate::bitset::BitSet;
 use crate::traits::BoundaryHash;
-use crate::types::DimN;
+use crate::traits::Recover;
 
 pub struct Tile<T, const N: usize>
 where
@@ -17,7 +15,6 @@ where
 impl<T, const N: usize> Tile<T, N>
 where
     T: BoundaryHash<N>,
-    DimN<N>: Dimension,
 {
     pub fn new(data: T, hashes: BitSet, shape: usize) -> Self {
         Tile {
@@ -28,12 +25,12 @@ where
     }
 }
 
-impl<T, const N: usize> Tile<T, N>
+impl<T, const N: usize> Recover<T, T, N> for Tile<T, N>
 where
     T: BoundaryHash<N> + Clone,
 {
     /// Recover the `T` for type `Tile<T, N>`.
-    pub fn recover(&self) -> T {
-        self.data.clone()
+    fn recover(&self) -> T {
+        self.data.to_owned()
     }
 }

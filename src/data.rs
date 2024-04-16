@@ -1,6 +1,5 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::hash::Hash;
 
 use ndarray::Dimension;
 use ndarray::NdIndex;
@@ -23,7 +22,7 @@ where
     pub tiles_lr: Vec<Tile<T, N>>,
     pub tiles_rl: Vec<Tile<T, N>>,
 
-    pub tile_size: usize
+    pub tile_size: usize,
 }
 
 impl<T, const N: usize> TileSet<T, N>
@@ -36,25 +35,9 @@ where
             data,
             tiles_lr: vec![],
             tiles_rl: vec![],
-            tile_size
+            tile_size,
         }
     }
-}
-
-pub trait Rotations<T, const N: usize>
-where
-    T: Hash + Clone,
-    DimN<N>: Dimension,
-{
-    fn with_rots(&mut self) -> &mut Self;
-}
-
-pub trait Flips<T, const N: usize>
-where
-    T: Hash + Clone,
-    DimN<N>: Dimension,
-{
-    fn with_flips(&mut self) -> &mut Self;
 }
 
 impl<T, const N: usize> TileSet<T, N>
@@ -90,7 +73,6 @@ where
             let mut hashes_lr = BitSet::zeros(2 * N * num_hashes);
             let mut hashes_rl = BitSet::zeros(2 * N * num_hashes);
 
-            // TODO: update this comment to explain left right vs right left
             // This is where we define the mapping in our tile's bitset. Some explanation is in
             // order.
             //
@@ -105,6 +87,18 @@ where
             // where each block represents `num_hashes` bits, and only one bit in each block is
             // flipped on. Namely, this is `index_left` for the left blocks, and `index_right`
             // for the right blocks.
+            //
+            // There is still one thing unexplained, and that is the use of two bitsets for two
+            // sets of tiles: `tiles_lr`, and `tiles_rl`. When we propagate the Wave, each WaveTile
+            // looks at its neighbors' BitSets to update its own. More specifically: for any given
+            // axis, it might look at its left wall and compare it with the right wall of its left
+            // neighbor, on that axis. But this requires an akward shift in the BitSet of either
+            // our current WaveTile, or its neighbor's. Better is to alternate the layouts of every
+            // other WaveTile's bitset. Much like a chessboard, all the black squares might have
+            // the alignment described above, while the white squares have their lefts and rights
+            // swapped. This eliminates the need for any bitshifting whatsoever in the WaveTiles at
+            // collapse time, and it is perhaps the single most impactful speed improvement to the
+            // algorithm.
             for (i, [left, right]) in hashes.iter().enumerate() {
                 let index_left = unique_hashes[left];
                 let index_right = unique_hashes[right];
@@ -116,8 +110,10 @@ where
                 hashes_rl.on((2 * i) * num_hashes + index_right);
             }
 
-            self.tiles_lr.push(Tile::new(data.clone(), hashes_lr, self.tile_size));
-            self.tiles_rl.push(Tile::new(data.clone(), hashes_rl, self.tile_size));
+            self.tiles_lr
+                .push(Tile::new(data.clone(), hashes_lr, self.tile_size));
+            self.tiles_rl
+                .push(Tile::new(data.clone(), hashes_rl, self.tile_size));
         }
 
         Wave::new(&self.tiles_lr, &self.tiles_rl, shape, num_hashes)

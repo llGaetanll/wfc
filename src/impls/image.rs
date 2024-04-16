@@ -5,6 +5,7 @@ use std::hash::Hash;
 use std::hash::Hasher;
 
 use image::GenericImage;
+use image::ImageBuffer;
 use image::Pixel;
 
 use image::Primitive;
@@ -14,14 +15,18 @@ use ndarray::Array2;
 
 use crate::data::TileSet;
 use crate::ext::image::ImageToArrayExt;
+use crate::ext::ndarray::ArrayToImageExt;
 use crate::ext::ndarray::ArrayTransformations;
 use crate::traits::Flips;
 use crate::traits::Merge;
+use crate::traits::Recover;
 use crate::traits::Rotations;
+use crate::traits::Stitch;
+use crate::wave::Wave;
 
 pub struct ImageParams<I: GenericImage> {
     pub image: I,
-    pub win_size: usize
+    pub win_size: usize,
 }
 
 impl<Sp, P, I> ImageParams<I>
@@ -211,25 +216,21 @@ impl<T: Primitive> Merge for Rgba<T> {
     }
 }
 
-/*
-impl<P> Recover<Array2<P>, 2> for Wave<Array2<P>, 2>
+impl<P> Recover<Array2<P>, ImageBuffer<P, Vec<<P as Pixel>::Subpixel>>, 2> for Wave<Array2<P>, 2>
 where
-    P: Pixel + Merge + Stitch<Array2<P>, 2> + Hash,
+    P: Pixel + Hash + Merge,
 {
-    /// Recovers the `T` from type `Wave<'a, T, N>`. Note that `T` must be `Merge` and `Stitch`.
+    /// Recovers the `T` from type `Wave<T, N>`. Note that `T` must be `Merge` and `Stitch`.
     ///
     /// In the future, this `Merge` requirement may be relaxed to only non-collapsed `Wave`s. This
     /// is a temporary limitation of the API. TODO
-    fn recover(&self) -> Option<impl GenericImage<Pixel = P>> {
+    fn recover(&self) -> ImageBuffer<P, Vec<<P as Pixel>::Subpixel>> {
         let ts: Vec<Array2<P>> = self.wave.iter().map(|wt| wt.recover()).collect();
 
         let dim = self.wave.raw_dim();
-
         let array = Array2::from_shape_vec(dim, ts).unwrap();
-
         let arr = Array2::<P>::stitch(&array);
 
-        arr.to_image()
+        arr.to_image().expect("failed to recover image from Wave")
     }
 }
-*/

@@ -1,4 +1,4 @@
-pub mod ext; // FIXME
+mod ext;
 mod types;
 
 pub mod data;
