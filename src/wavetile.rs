@@ -1,9 +1,5 @@
-use core::hash::Hash;
-
 use std::array::from_fn;
 use std::fmt::Debug;
-use std::ops::Deref;
-use std::ops::DerefMut;
 
 use rand::Rng;
 
@@ -14,13 +10,16 @@ use crate::traits::BoundaryHash;
 use crate::traits::Merge;
 use crate::traits::Recover;
 
+use crate::ext::ndarray::NdIndex as WfcNdIndex;
+use crate::util::partition_in_place;
+
 #[derive(Debug)]
 pub enum WaveTileError {
     OutOfTiles,
     RollbackOOB,
 }
 
-pub type NeighborWaveTiles<T, const N: usize> = [[Option<WaveTilePtr<T, N>>; 2]; N];
+pub type NeighborWaveTiles<T, const N: usize> = [[Option<*mut WaveTile<T, N>>; 2]; N];
 
 pub struct WaveTile<T, const N: usize>
 where
@@ -32,7 +31,7 @@ where
 
     pub tiles: Vec<*const Tile<T, N>>,
     pub entropy: usize,
-    pub index: [usize; N],
+    pub index: WfcNdIndex<N>,
 
     // (iter, index)
     filtered_tile_indices: Vec<(usize, usize)>,
@@ -49,7 +48,7 @@ where
     /// Create a new `WaveTile`
     pub fn new(
         tiles: Vec<*const Tile<T, N>>,
-        index: [usize; N],
+        index: WfcNdIndex<N>,
         num_hashes: usize,
         parity: usize,
     ) -> Self {
@@ -272,119 +271,5 @@ where
             .collect();
 
         T::merge(&ts)
-    }
-}
-
-unsafe impl<T, const N: usize> Send for WaveTile<T, N> where T: BoundaryHash<N> {}
-unsafe impl<T, const N: usize> Sync for WaveTile<T, N> where T: BoundaryHash<N> {}
-
-
-
-#[repr(transparent)]
-pub struct WaveTilePtr<T: BoundaryHash<N>, const N: usize>(*mut WaveTile<T, N>);
-
-impl<T, const N: usize> WaveTilePtr<T, N>
-where T: BoundaryHash<N>
-{
-    pub fn from(ptr: *mut WaveTile<T, N>) -> Self {
-        Self(ptr)
-    }
-}
-
-impl<T, const N: usize> Deref for WaveTilePtr<T, N> 
-where T: BoundaryHash<N>
-{
-    type Target = WaveTile<T, N>;
-
-    fn deref(&self) -> &Self::Target {
-        unsafe { &*self.0 }
-    }
-}
-
-impl<T, const N: usize> DerefMut for WaveTilePtr<T, N> 
-where T: BoundaryHash<N>
-{
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut *self.0 }
-    }
-}
-
-impl<T, const N: usize> Debug for WaveTilePtr<T, N>
-where T: BoundaryHash<N>
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-unsafe impl<T, const N: usize> Send for WaveTilePtr<T, N>
-where T: BoundaryHash<N> {}
-
-unsafe impl<T, const N: usize> Sync for WaveTilePtr<T, N>
-where T: BoundaryHash<N> {}
-
-impl<T, const N: usize> Clone for WaveTilePtr<T, N>
-where T: BoundaryHash<N> {
-    fn clone(&self) -> Self {
-        WaveTilePtr::from(self.0)
-    }
-}
-
-impl<T, const N: usize> Copy for WaveTilePtr<T, N>
-where T: BoundaryHash<N> {}
-
-impl<T, const N: usize> Hash for WaveTilePtr<T, N>
-where T: BoundaryHash<N> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.0.hash(state)
-    }
-}
-
-impl<T, const N: usize> PartialEq for WaveTilePtr<T, N>
-where T: BoundaryHash<N> {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.eq(&other.0)
-    }
-}
-
-impl<T, const N: usize> Eq for WaveTilePtr<T, N>
-where T: BoundaryHash<N> {}
-
-/// Takes `&mut [T]` and a predicate `P: FnMut(&T) -> bool` and partitions the list according to
-/// the predicate. Swaps elements of the list such that all elements satisfying `P` appear before
-/// any element not satisfying `P`.
-///
-/// The index `i` returned by the function always points at the first element for which `P` is false.
-/// Note that if `P` is trivial, then `i = |list|` points outside the list.
-pub fn partition_in_place<T, P>(list: &mut [T], mut predicate: P) -> usize
-where
-    P: FnMut(&T) -> bool,
-{
-    if list.is_empty() {
-        return 0;
-    }
-
-    let (mut lo, mut hi) = (0, list.len() - 1);
-
-    while lo < hi {
-        if predicate(&list[lo]) {
-            lo += 1;
-            continue;
-        }
-
-        if !predicate(&list[hi]) {
-            hi -= 1;
-            continue;
-        }
-
-        list.swap(lo, hi);
-        lo += 1;
-        hi -= 1;
-    }
-
-    if predicate(&list[lo]) {
-        lo + 1
-    } else {
-        lo
     }
 }

@@ -31,7 +31,7 @@ fn main() {
     let mut wave = tileset.wave(Ix2(70, 70));
 
     let t0 = SystemTime::now();
-    wave.collapse(None);
+    wave.collapse();
     let t1 = SystemTime::now();
 
     let image: ImageBuffer<_, _> = wave.recover();

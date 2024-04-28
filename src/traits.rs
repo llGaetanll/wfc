@@ -21,6 +21,7 @@ use ndarray::SliceInfoElem;
 
 use crate::types::DimN;
 
+/// A type `T` implements [`Rotations`] if it can make sense for `T` to be rotated.
 pub trait Rotations<T, const N: usize>
 where
     T: Hash + Clone,
@@ -29,6 +30,7 @@ where
     fn with_rots(&mut self) -> &mut Self;
 }
 
+/// A type `T` implements [`Flips`] if it can make sense for `T` to be flipped.
 pub trait Flips<T, const N: usize>
 where
     T: Hash + Clone,
@@ -37,7 +39,7 @@ where
     fn with_flips(&mut self) -> &mut Self;
 }
 
-/// A trait to characterize types with a `Hash` boundary
+/// A trait to characterize types with a [`Hash`] boundary.
 pub trait BoundaryHash<const N: usize>: Hash {
     fn boundary_hashes(&self) -> [[u64; 2]; N];
 }
@@ -48,8 +50,8 @@ where
     S::Elem: Hash,
     DimN<N>: Dimension,
 
-    // this ensures that whatever dimension we're in can be sliced into a smaller one
-    // we need this to extract the boundary of the current tile so that we can hash it
+    // This ensures that whatever dimension we're in can be sliced into a smaller one.
+    // We need this to extract the boundary of the current tile, so that we can hash it
     SliceInfo<Vec<SliceInfoElem>, DimN<N>, <DimN<N> as Dimension>::Smaller>: SliceArg<DimN<N>>,
 {
     fn boundary_hashes(&self) -> [[u64; 2]; N] {
@@ -115,6 +117,7 @@ where
     }
 }
 
+/// A type `T` implements [`Merge`] if it can make sense for `[T]` to be merged into a single `T`.
 pub trait Merge {
     fn merge(xs: &[Self]) -> Self
     where
@@ -127,7 +130,7 @@ where
     T: Merge + Clone,
     DimN<N>: Dimension,
 {
-    /// Merge `Array`s of elements. Assumes that all input arrays are the same shape.
+    /// Merge [`Array`]s of elements. Assumes that all input arrays are the same shape.
     ///
     /// NOTE: requires an allocation.
     ///
@@ -180,10 +183,7 @@ where
     }
 }
 
-// A trait for types `T` where it is possible to stitch arrays of `T` back into a single `T`.
-//
-// NOTE: It is not clear to me at the moment whether the output type should also be `T`. In every
-// scenario that I can imagine, it is, but maybe this is not always the case.
+/// A trait for types `T` where it is possible to stitch arrays of `T` back into a single `T`.
 pub trait Stitch<T, const N: usize> {
     fn stitch(xs: &Array<T, DimN<N>>) -> T;
 }
@@ -195,7 +195,7 @@ where
     DimN<N>: Dimension,
     [usize; N]: NdIndex<DimN<N>>,
 {
-    /// Stitch an `Array` of `Array`s back into a single `Array`. Panics if any of the following
+    /// Stitch an [`Array`] of [`Array`]s back into a single `Array`. Panics if any of the following
     /// are true.
     ///
     /// Requires an allocation.
@@ -264,8 +264,8 @@ where
 /// Recover the `T`. This is used in the wave to convert back to the original type (i.e. produce
 /// the full picture output.)
 ///
-/// Note that `T` need be `Clone`. This is because wave function collapse may naturally use a
-/// `Tile` more than once, and so may need to access the underlying data (`T`) more than once as
+/// Note that `T` need be [`Clone`]. This is because wave function collapse may naturally use a
+/// tile more than once, and so may need to access the underlying data (`T`) more than once as
 /// well. This however has no impact on performance during collapse.
 pub trait Recover<T, U, const N: usize>
 where

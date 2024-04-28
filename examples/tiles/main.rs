@@ -2,8 +2,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
-use image::Pixel;
 use image::ImageBuffer;
+use image::Pixel;
 use ndarray::Ix2;
 
 use wfc::data::TileSet;
@@ -37,10 +37,10 @@ fn main() {
 
     let mut tileset = TileSet::from_images(images);
     tileset.with_rots().with_flips();
-    let mut wave = tileset.wave(Ix2(20, 20));
+    let mut wave = tileset.wave(Ix2(70, 70));
 
     let t0 = SystemTime::now();
-    wave.collapse2();
+    wave.collapse();
     let t1 = SystemTime::now();
 
     println!("collapsed in {:?}", t1.duration_since(t0).unwrap());
