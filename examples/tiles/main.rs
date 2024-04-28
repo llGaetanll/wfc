@@ -40,13 +40,13 @@ fn main() {
     let mut wave = tileset.wave(Ix2(20, 20));
 
     let t0 = SystemTime::now();
-    wave.collapse(None);
+    wave.collapse2();
     let t1 = SystemTime::now();
 
     println!("collapsed in {:?}", t1.duration_since(t0).unwrap());
 
     println!("scaling image");
     let image: ImageBuffer<_, _> = wave.recover();
-    let image = scale_image(image, 3); // resize the image
+    let image = scale_image(image, 10); // resize the image
     image.save("wave.png").expect("failed to save image");
 }

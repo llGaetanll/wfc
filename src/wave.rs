@@ -1,7 +1,12 @@
+use std::collections::HashSet;
+
+use ndarray::parallel::prelude::*;
 use ndarray::Array;
 use ndarray::Dimension;
 use ndarray::IntoDimension;
 use ndarray::NdIndex;
+
+use rayon::prelude::*;
 
 use crate::bitset::BitSlice;
 use crate::tile::Tile;
@@ -14,6 +19,8 @@ use crate::wavetile::WaveTile;
 
 use crate::ext::ndarray::NdIndex as WfcNdIndex;
 use crate::ext::ndarray::WaveArrayExt;
+use crate::wavetile::WaveTileError;
+use crate::wavetile::WaveTilePtr;
 
 pub struct Wave<T, const N: usize>
 where
@@ -23,9 +30,7 @@ where
 {
     pub wave: Array<WaveTile<T, N>, DimN<N>>,
 
-    // cached to speed up propagate
-    min_entropy: (usize, [usize; N]),
-    max_entropy: (usize, [usize; N]),
+    work: Vec<HashSet<WaveTilePtr<T, N>>>,
 }
 
 // TODO: maybe encode whether the `Wave` has collapsed as part of the type?
@@ -52,58 +57,82 @@ where
             .map(|tile| tile as *const Tile<T, N>)
             .collect();
 
+        let wave = Array::from_shape_fn(shape, |i| {
+            let i = i.into_dimension();
+            let i = i.as_array_view();
+
+            let mut parity: usize = i.sum();
+            parity %= 2;
+
+            let index: [usize; N] = i
+                .as_slice()
+                .expect("not in standard order!")
+                .try_into()
+                .unwrap();
+
+            if parity == 0 {
+                WaveTile::new(tiles_lr.clone(), index, num_hashes, parity)
+            } else {
+                WaveTile::new(tiles_rl.clone(), index, num_hashes, parity)
+            }
+        });
+
+        // this is the maximal distance between any two points in our array
+        let max_man_dist = wave.max_manhattan_dist();
+
         let mut wave = Wave {
-            wave: Array::from_shape_fn(shape, |i| {
-                let mut parity: usize = i.into_dimension().as_array_view().sum();
-                parity %= 2;
+            wave,
 
-                if parity == 0 {
-                    WaveTile::new(tiles_lr.clone(), num_hashes, parity)
-                } else {
-                    WaveTile::new(tiles_rl.clone(), num_hashes, parity)
-                }
-            }),
-
-            min_entropy: (num_tiles, [0; N]),
-            max_entropy: (num_tiles, [0; N]),
+            work: vec![HashSet::new(); max_man_dist],
         };
 
-        // for each WaveTile, we need to get a list of pointers to its neighbors. This is why we
-        // pinned the box.
-        let get_wavetile_neighbor_bitsets = |index: usize| -> [[Option<*const BitSlice>; 2]; N] {
+        // wave.entropy = wave.wave.iter_mut().map(|wt| wt as *mut WaveTile<T, N>).collect();
+
+        let n = wave.wave.len();
+
+        let get_wavetile_neighbors = |index: usize| -> [[Option<WaveTilePtr<T, N>>; 2]; N] {
             let index = wave.wave.get_nd_index(index);
             let neighbor_indices = wave.wave.get_index_neighbors(index);
 
-            let neighbor_bitsets: [[Option<*const BitSlice>; 2]; N] = neighbor_indices
+            neighbor_indices
                 .iter()
-                .map(|[left, right]| {
+                .map(|[l, r]| {
                     [
-                        left.map(|index| {
-                            let wavetile_left = &wave.wave[index];
-                            let hashes: &BitSlice = &wavetile_left.hashes;
-                            let hashes: *const BitSlice = hashes;
-                            hashes
+                        l.map(|index| {
+                            WaveTilePtr::from(&mut wave.wave[index] as *mut WaveTile<T, N>)
                         }),
-                        right.map(|index| {
-                            let wavetile_right = &wave.wave[index];
-                            let hashes: &BitSlice = &wavetile_right.hashes;
-                            let hashes: *const BitSlice = hashes;
-                            hashes
+                        r.map(|index| {
+                            WaveTilePtr::from(&mut wave.wave[index] as *mut WaveTile<T, N>)
                         }),
                     ]
                 })
                 .collect::<Vec<_>>()
                 .try_into()
-                .unwrap();
-
-            neighbor_bitsets
+                .unwrap()
         };
 
-        // the complete list of all neighbor bitset pointers for each wavetile of the wave
-        let wavetile_bitsets_neighbors: Vec<[[Option<*const BitSlice>; 2]; N]> =
-            (0..wave.wave.len())
-                .map(get_wavetile_neighbor_bitsets)
-                .collect();
+        let get_neighbor_hashes =
+            |wts: [[Option<WaveTilePtr<T, N>>; 2]; N]| -> [[Option<*const BitSlice>; 2]; N] {
+                wts.map(|[l, r]| {
+                    [
+                        l.map(|wt| {
+                            // SAFETY: WaveTile array size is fixed, so it is not moved.
+                            let wt = unsafe { &*wt };
+                            let hashes: &BitSlice = &wt.hashes;
+                            hashes as *const BitSlice
+                        }),
+                        r.map(|wt| {
+                            // SAFETY: ibid
+                            let wt = unsafe { &*wt };
+                            let hashes: &BitSlice = &wt.hashes;
+                            hashes as *const BitSlice
+                        }),
+                    ]
+                })
+            };
+
+        let wavetile_neighbors: Vec<[[Option<WaveTilePtr<T, N>>; 2]; N]> =
+            (0..n).map(get_wavetile_neighbors).collect();
 
         // 2. Assign the pointers
         // NOTE: We HAD to do this in two steps.
@@ -116,21 +145,117 @@ where
         //      Wave itself. But this requires a mutable reference to wave.wave, hence it must be
         //      done independently from the pointer collection step.
         {
-            for (wavetile, neighbor_bitsets) in wave
-                .wave
-                .iter_mut()
-                .zip(wavetile_bitsets_neighbors.into_iter())
+            for (wavetile, neighbor_wavetiles) in
+                wave.wave.iter_mut().zip(wavetile_neighbors.into_iter())
             {
-                wavetile.neighbor_hashes = neighbor_bitsets;
+                let hashes = get_neighbor_hashes(neighbor_wavetiles);
+
+                wavetile.neighbors = neighbor_wavetiles;
+                wavetile.neighbor_hashes = hashes;
             }
         }
 
         wave
     }
 
+    pub fn collapse2(&mut self) {
+        for iter in 0.. {
+            let (wt_min_idx, wt_max_idx) = self.get_entropy();
+            let wt_max = &self.wave[wt_max_idx];
+
+            if wt_max.entropy < 2 {
+                break;
+            }
+
+            let wt_min = &mut self.wave[wt_min_idx];
+
+            let next = wt_min.collapse2(0);
+            self.work[0].extend(next.into_iter().flat_map(|axis| axis.into_iter()).flatten()); // all distance 1
+            if self.propagate2(iter, wt_min_idx).is_err() {
+                self.rollback(iter);
+            }
+        }
+    }
+
+    fn get_entropy(&mut self) -> ([usize; N], [usize; N]) {
+        let id = [(usize::MAX, [0; N]), (0, [0; N])];
+
+        let [(_, wt_min), (_, wt_max)] = self
+            .wave
+            .par_iter_mut()
+            .map(|wavetile| (wavetile.entropy, wavetile.index))
+            .fold(
+                || id,
+                |acc, (entropy, index)| {
+                    let [mut min_entropy, mut max_entropy] = acc;
+
+                    if entropy > 1 && entropy < min_entropy.0 {
+                        min_entropy.0 = entropy;
+                        min_entropy.1 = index;
+                    }
+
+                    if entropy > max_entropy.0 {
+                        max_entropy.0 = entropy;
+                        max_entropy.1 = index;
+                    }
+
+                    [min_entropy, max_entropy]
+                },
+            )
+            .reduce(
+                || id,
+                |a, b| {
+                    let mut entropy_range = a;
+
+                    if b[0].0 < a[0].0 {
+                        entropy_range[0] = b[0];
+                    }
+
+                    if b[1].0 > a[1].0 {
+                        entropy_range[1] = b[1];
+                    }
+
+                    entropy_range
+                },
+            );
+
+        (wt_min, wt_max)
+    }
+
+    pub fn propagate2(&mut self, iter: usize, index: [usize; N]) -> Result<(), WaveTileError> {
+        for d in 0.. {
+            // process these in parallel
+            let next_work = self.work[d]
+                .par_drain()
+                .flat_map(|mut wt| {
+                    wt.update2(iter)
+                        .expect("oops")
+                        .into_par_iter()
+                        .flat_map(|axis| axis.into_par_iter())
+                        .filter_map(|wt| {
+                            wt.filter(|&wt| {
+                                manhattan_dist(index, wt.index) == d + 2
+                            })
+                        })
+                })
+                .collect::<HashSet<_>>();
+
+            // the wave stops as soon as no more work is required
+            if next_work.is_empty() {
+                break;
+            }
+
+            // all work of distance d
+            self.work[d + 1] = next_work;
+        }
+
+        Ok(())
+    }
+
     /// Collapse the `Wave`
     pub fn collapse(&mut self, starting_index: Option<WfcNdIndex<N>>) /* -> Option<T> */
     {
+        /*
         // if the wave is fully collapsed
         if self.max_entropy.0 < 2 {
             return; // Some(self.recover(tileset));
@@ -157,12 +282,14 @@ where
 
             index = self.min_entropy.1;
         }
+        */
     }
 
     /// Propagates the wave from an index `start`
     /// TODO:
     ///  - stop propagation if neighboring tiles haven't updated
     fn propagate(&mut self, start: WfcNdIndex<N>, iter: usize) {
+        /*
         let mut min_entropy = (usize::MAX, self.min_entropy.1);
         let mut max_entropy = (0, self.max_entropy.1);
 
@@ -198,33 +325,16 @@ where
         // update entropy
         self.min_entropy = min_entropy;
         self.max_entropy = max_entropy;
+        */
     }
 
     /// Rollback the `Wave`. This is used when a `WaveTile` has ran out of possible `Tile`s.
     fn rollback(&mut self, iter: usize) {
-        let (mut min_entropy, mut min_idx) = (usize::MAX, 0);
-        let (mut max_entropy, mut max_idx) = (0, 0);
+        println!("rolling back wave");
 
-        let mut upd_entropy = |entropy, index| {
-            if entropy > 1 && entropy < min_entropy {
-                min_entropy = entropy;
-                min_idx = index;
-            }
-
-            if entropy > max_entropy {
-                max_entropy = entropy;
-                max_idx = index;
-            }
-        };
-
-        for (i, wavetile) in self.wave.iter_mut().enumerate() {
+        self.wave.par_iter_mut().for_each(|wavetile| {
             wavetile.rollback(3, iter);
-            upd_entropy(wavetile.entropy, i);
-        }
-
-        // update entropy
-        self.min_entropy = (min_entropy, self.wave.get_nd_index(min_idx));
-        self.max_entropy = (max_entropy, self.wave.get_nd_index(max_idx));
+        });
     }
 }
 
@@ -247,4 +357,12 @@ where
 
         T::stitch(&array)
     }
+}
+
+// compute the manhattan distance between two points
+fn manhattan_dist<const N: usize>(a: [usize; N], b: [usize; N]) -> usize {
+    a.iter()
+        .zip(b.iter())
+        .map(|(&a, &b)| ((a as isize) - (b as isize)).unsigned_abs())
+        .sum()
 }

@@ -18,6 +18,7 @@ pub type NdIndex<const N: usize> = [usize; N];
 pub type NeighborIndices<const N: usize> = [[Option<NdIndex<N>>; 2]; N];
 
 pub trait WaveArrayExt<const N: usize> {
+    fn max_manhattan_dist(&self) -> usize;
     fn get_nd_index(&self, flat_index: FlatIndex) -> NdIndex<N>;
     fn get_index_groups(&self, start: NdIndex<N>) -> Vec<Vec<NdIndex<N>>>;
     fn get_index_neighbors(&self, index: NdIndex<N>) -> NeighborIndices<N>;
@@ -28,6 +29,12 @@ where
     DimN<N>: Dimension,
     S: Data,
 {
+    /// Find the maximum manhattan distance between any two points of the array.
+    fn max_manhattan_dist(&self) -> usize {
+        let shape = self.shape();
+        shape.iter().sum::<usize>() - N
+    }
+
     /// Converts a flat index into an NdIndex
     fn get_nd_index(&self, flat_index: FlatIndex) -> NdIndex<N> {
         let strides = self.strides();
@@ -61,14 +68,8 @@ where
 
         // compute the tile farthest away from the starting index
         // this gives us the number of index groups B are in our wave given the `starting_index`
-        let max_manhattan_dist = self
-            .iter()
-            .enumerate()
-            .map(|(i, _)| manhattan_dist(self.get_nd_index(i)))
-            .max()
-            .unwrap();
-
-        let mut index_groups: Vec<Vec<NdIndex<N>>> = vec![Vec::new(); max_manhattan_dist];
+        let max_man_dist = self.max_manhattan_dist();
+        let mut index_groups: Vec<Vec<NdIndex<N>>> = vec![Vec::new(); max_man_dist];
 
         for (index, _) in self.iter().enumerate() {
             let nd_index = self.get_nd_index(index);
