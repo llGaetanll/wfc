@@ -6,6 +6,7 @@ use image::ImageBuffer;
 use image::Pixel;
 use ndarray::Ix2;
 
+use wfc::rand;
 use wfc::data::TileSet;
 use wfc::traits::{Flips, Recover, Rotations};
 
@@ -39,8 +40,10 @@ fn main() {
     tileset.with_rots().with_flips();
     let mut wave = tileset.wave(Ix2(100, 100));
 
+    let mut rng = rand::thread_rng();
+
     let t0 = SystemTime::now();
-    wave.collapse();
+    wave.collapse(&mut rng);
     let t1 = SystemTime::now();
 
     println!("collapsed in {:?}", t1.duration_since(t0).unwrap());

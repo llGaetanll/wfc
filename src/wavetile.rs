@@ -2,6 +2,7 @@ use std::array::from_fn;
 use std::fmt::Debug;
 
 use rand::Rng;
+use rand::RngCore;
 
 use crate::bitset::BitSet;
 use crate::bitset::BitSlice;
@@ -78,12 +79,13 @@ where
     }
 
     /// Collapses a `WaveTile` to one of its possible tiles, at random.
-    pub fn collapse(&mut self, iter: usize) -> NeighborWaveTiles<T, N> {
+    pub fn collapse<R>(&mut self, rng: &mut R, iter: usize) -> NeighborWaveTiles<T, N> 
+        where R: RngCore + ?Sized
+    {
         assert!(self.entropy > 1, "called collapse on a collapsed WaveTile!");
 
         let n = self.tiles.len();
 
-        let mut rng = rand::thread_rng();
         let idx = rng.gen_range(self.start_index..n);
 
         self.filtered_tile_indices.push((iter, n - 1));

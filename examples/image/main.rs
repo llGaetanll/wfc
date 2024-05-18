@@ -5,6 +5,7 @@ use std::time::SystemTime;
 use image::ImageBuffer;
 use ndarray::Ix2;
 
+use wfc::rand;
 use wfc::impls::image::ImageParams;
 use wfc::traits::Flips;
 use wfc::traits::Recover;
@@ -29,9 +30,10 @@ fn main() {
     tileset.with_rots().with_flips();
 
     let mut wave = tileset.wave(Ix2(70, 70));
+    let mut rng = rand::thread_rng();
 
     let t0 = SystemTime::now();
-    wave.collapse();
+    wave.collapse(&mut rng);
     let t1 = SystemTime::now();
 
     let image: ImageBuffer<_, _> = wave.recover();

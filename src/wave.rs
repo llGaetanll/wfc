@@ -4,6 +4,7 @@ use ndarray::Array;
 use ndarray::Dimension;
 use ndarray::IntoDimension;
 use ndarray::NdIndex;
+use rand::RngCore;
 
 use crate::bitset::BitSlice;
 use crate::tile::Tile;
@@ -148,7 +149,9 @@ where
     }
 
     /// Collapse the [`Wave`].
-    pub fn collapse(&mut self) {
+    pub fn collapse<R>(&mut self, rng: &mut R) 
+    where R: RngCore + ?Sized
+    {
         for iter in 0.. {
             let [(_min, min_idx), (max, _max_idx)] = self.get_entropy();
             if max < 2 {
@@ -157,7 +160,7 @@ where
 
             let wt_min = &mut self.wave[min_idx];
 
-            let next = wt_min.collapse(iter);
+            let next = wt_min.collapse(rng, iter);
             self.work[0].extend(next.into_iter().flat_map(|axis| axis.into_iter()).flatten()); // all distance 1
             if self.propagate(iter, min_idx).is_err() {
                 self.rollback(iter);
