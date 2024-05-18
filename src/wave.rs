@@ -157,7 +157,7 @@ where
 
             let wt_min = &mut self.wave[min_idx];
 
-            let next = wt_min.collapse(0);
+            let next = wt_min.collapse(iter);
             self.work[0].extend(next.into_iter().flat_map(|axis| axis.into_iter()).flatten()); // all distance 1
             if self.propagate(iter, min_idx).is_err() {
                 self.rollback(iter);
