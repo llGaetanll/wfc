@@ -26,8 +26,8 @@ where
     T: BoundaryHash<N>,
 {
     pub hashes: BitSet,
-    pub neighbor_hashes: [[Option<*const BitSlice>; 2]; N],
     pub neighbors: NeighborWaveTiles<T, N>,
+    pub neighbor_hashes: [[Option<*const BitSlice>; 2]; N],
 
     pub tiles: Vec<*const Tile<T, N>>,
     pub entropy: usize,
@@ -77,7 +77,8 @@ where
         wavetile
     }
 
-    pub fn collapse2(&mut self, iter: usize) -> NeighborWaveTiles<T, N> {
+    /// Collapses a `WaveTile` to one of its possible tiles, at random.
+    pub fn collapse(&mut self, iter: usize) -> NeighborWaveTiles<T, N> {
         assert!(self.entropy > 1, "called collapse on a collapsed WaveTile!");
 
         let n = self.tiles.len();
@@ -96,7 +97,8 @@ where
         self.neighbors
     }
 
-    pub fn update2(&mut self, iter: usize) -> Result<NeighborWaveTiles<T, N>, WaveTileError> {
+    /// Update the `possible_tiles` of the current `WaveTile`
+    pub fn update(&mut self, iter: usize) -> Result<NeighborWaveTiles<T, N>, WaveTileError> {
         if self.entropy == 1 {
             return Ok(from_fn(|_| from_fn(|_| None)));
         }
@@ -123,55 +125,6 @@ where
             Err(WaveTileError::OutOfTiles)
         } else {
             Ok(self.neighbors)
-        }
-    }
-
-    /// Collapses a `WaveTile` to one of its possible tiles, at random.
-    pub fn collapse(&mut self, iter: usize) {
-        assert!(self.entropy > 1, "called collapse on a collapsed WaveTile!");
-
-        let n = self.tiles.len();
-
-        let mut rng = rand::thread_rng();
-        let idx = rng.gen_range(self.start_index..n);
-
-        self.filtered_tile_indices.push((iter, n - 1));
-        self.start_index = n - 1;
-
-        self.tiles.swap(idx, n - 1);
-
-        self.update_hashes();
-        self.entropy = 1;
-    }
-
-    /// Update the `possible_tiles` of the current `WaveTile`
-    pub fn update(&mut self, iter: usize) -> Result<(), WaveTileError> {
-        if self.entropy == 1 {
-            return Ok(());
-        }
-
-        // new hashes are computed
-        let alt_wavetile_bitset = self.get_alt_wavetile_bitset();
-        self.hashes.intersect(&alt_wavetile_bitset);
-
-        let i = partition_in_place(&mut self.tiles[self.start_index..], |tile| {
-            // SAFETY: `Vec` size is fixed before collapse
-            let tile = unsafe { &**tile };
-
-            !tile.hashes.is_subset(&self.hashes)
-        });
-
-        self.start_index += i;
-
-        self.filtered_tile_indices.push((iter, self.start_index));
-        self.entropy = self.tiles.len() - self.start_index;
-
-        self.update_hashes();
-
-        if self.entropy == 0 {
-            Err(WaveTileError::OutOfTiles)
-        } else {
-            Ok(())
         }
     }
 

@@ -9,10 +9,10 @@ pub mod traits;
 mod bitset;
 
 mod tile;
-mod wavetile;
 pub mod wave;
+mod wavetile;
 
 pub use data::TileSet;
 pub use traits::Flips;
-pub use traits::Rotations;
 pub use traits::Recover;
+pub use traits::Rotations;

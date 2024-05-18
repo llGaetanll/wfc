@@ -157,7 +157,7 @@ where
 
             let wt_min = &mut self.wave[min_idx];
 
-            let next = wt_min.collapse2(0);
+            let next = wt_min.collapse(0);
             self.work[0].extend(next.into_iter().flat_map(|axis| axis.into_iter()).flatten()); // all distance 1
             if self.propagate(iter, min_idx).is_err() {
                 self.rollback(iter);
@@ -175,7 +175,7 @@ where
                 let wt: &mut WaveTile<T, N> = unsafe { &mut *wt };
 
                 let next = wt
-                    .update2(iter)?
+                    .update(iter)?
                     .into_iter()
                     .flat_map(|axis| axis.into_iter())
                     .filter_map(|wt| {

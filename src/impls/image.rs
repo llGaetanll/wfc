@@ -220,9 +220,9 @@ impl<P> Recover<Array2<P>, ImageBuffer<P, Vec<<P as Pixel>::Subpixel>>, 2> for W
 where
     P: Pixel + Hash + Merge,
 {
-    /// Recovers the `T` from type `Wave<T, N>`. Note that `T` must be `Merge` and `Stitch`.
+    /// Recovers the `T` from type [`Wave<T, N>`]. Note that `T` must be [`Merge`] and [`Stitch`].
     ///
-    /// In the future, this `Merge` requirement may be relaxed to only non-collapsed `Wave`s. This
+    /// In the future, this [`Merge`] requirement may be relaxed to only non-collapsed [`Wave`]s. This
     /// is a temporary limitation of the API. TODO
     fn recover(&self) -> ImageBuffer<P, Vec<<P as Pixel>::Subpixel>> {
         let ts: Vec<Array2<P>> = self.wave.iter().map(|wt| wt.recover()).collect();
