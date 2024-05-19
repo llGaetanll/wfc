@@ -2,8 +2,8 @@
 /// A Bitset representation, specialized for Wave Function Collapse
 ///
 use core::fmt::Debug;
-use std::ops::Deref;
 use std::array::from_fn;
+use std::ops::Deref;
 
 pub const WORD_SIZE: usize = std::mem::size_of::<usize>() * 8;
 

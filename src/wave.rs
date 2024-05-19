@@ -30,7 +30,7 @@ where
     pub wave: Array<WaveTile<T, N>, DimN<N>>,
 
     work: Vec<HashSet<*mut WaveTile<T, N>>>,
-    ones: BitSet
+    ones: BitSet,
 }
 
 // TODO: maybe encode whether the `Wave` has collapsed as part of the type?
@@ -89,7 +89,7 @@ where
 
             work: vec![HashSet::new(); max_man_dist],
 
-            ones: BitSet::ones(2 * N * num_hashes)
+            ones: BitSet::ones(2 * N * num_hashes),
         };
 
         let n = wave.wave.len();
@@ -120,7 +120,8 @@ where
                             let wt = unsafe { &*wt };
                             let hashes: &BitSlice = &wt.hashes;
                             hashes as *const BitSlice
-                        }).unwrap_or({
+                        })
+                        .unwrap_or({
                             let ones: &BitSlice = &wave.ones;
                             ones as *const BitSlice
                         }),
@@ -129,7 +130,8 @@ where
                             let wt = unsafe { &*wt };
                             let hashes: &BitSlice = &wt.hashes;
                             hashes as *const BitSlice
-                        }).unwrap_or({
+                        })
+                        .unwrap_or({
                             let ones: &BitSlice = &wave.ones;
                             ones as *const BitSlice
                         }),
@@ -167,8 +169,9 @@ where
     }
 
     /// Collapse the [`Wave`].
-    pub fn collapse<R>(&mut self, rng: &mut R) 
-    where R: RngCore + ?Sized
+    pub fn collapse<R>(&mut self, rng: &mut R)
+    where
+        R: RngCore + ?Sized,
     {
         for iter in 0.. {
             let [(_min, min_idx), (max, _max_idx)] = self.get_entropy();

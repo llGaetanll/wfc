@@ -6,8 +6,8 @@ use image::ImageBuffer;
 use image::Pixel;
 use ndarray::Ix2;
 
-use wfc::rand;
 use wfc::data::TileSet;
+use wfc::rand;
 use wfc::traits::{Flips, Recover, Rotations};
 
 type Img<P> = ImageBuffer<P, Vec<<P as Pixel>::Subpixel>>;

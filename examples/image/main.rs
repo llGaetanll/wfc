@@ -5,8 +5,8 @@ use std::time::SystemTime;
 use image::ImageBuffer;
 use ndarray::Ix2;
 
-use wfc::rand;
 use wfc::impls::image::ImageParams;
+use wfc::rand;
 use wfc::traits::Flips;
 use wfc::traits::Recover;
 use wfc::traits::Rotations;

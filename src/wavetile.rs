@@ -56,7 +56,7 @@ where
         index: WfcNdIndex<N>,
         num_hashes: usize,
         parity: usize,
-        temp_ptr: *const BitSlice
+        temp_ptr: *const BitSlice,
     ) -> Self {
         let entropy = tiles.len();
 
