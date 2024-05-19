@@ -19,10 +19,10 @@ where
 {
     pub data: Vec<T>,
 
-    pub tiles_lr: Vec<Tile<T, N>>,
-    pub tiles_rl: Vec<Tile<T, N>>,
+    tiles_lr: Vec<Tile<T, N>>,
+    tiles_rl: Vec<Tile<T, N>>,
 
-    pub tile_size: usize,
+    tile_size: usize,
 }
 
 impl<T, const N: usize> TileSet<T, N>
