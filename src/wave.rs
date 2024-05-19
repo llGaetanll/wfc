@@ -6,6 +6,7 @@ use ndarray::IntoDimension;
 use ndarray::NdIndex;
 use rand::RngCore;
 
+use crate::bitset::BitSet;
 use crate::bitset::BitSlice;
 use crate::tile::Tile;
 use crate::traits::BoundaryHash;
@@ -29,6 +30,7 @@ where
     pub wave: Array<WaveTile<T, N>, DimN<N>>,
 
     work: Vec<HashSet<*mut WaveTile<T, N>>>,
+    ones: BitSet
 }
 
 // TODO: maybe encode whether the `Wave` has collapsed as part of the type?
@@ -53,6 +55,12 @@ where
             .map(|tile| tile as *const Tile<T, N>)
             .collect();
 
+        let dummy_bitset = BitSet::new();
+        let temp_ptr = {
+            let ptr: &BitSlice = &dummy_bitset;
+            ptr as *const BitSlice
+        };
+
         let wave = Array::from_shape_fn(shape, |i| {
             let i = i.into_dimension();
             let i = i.as_array_view();
@@ -67,9 +75,9 @@ where
                 .unwrap();
 
             if parity == 0 {
-                WaveTile::new(tiles_lr.clone(), index, num_hashes, parity)
+                WaveTile::new(tiles_lr.clone(), index, num_hashes, parity, temp_ptr)
             } else {
-                WaveTile::new(tiles_rl.clone(), index, num_hashes, parity)
+                WaveTile::new(tiles_rl.clone(), index, num_hashes, parity, temp_ptr)
             }
         });
 
@@ -80,6 +88,8 @@ where
             wave,
 
             work: vec![HashSet::new(); max_man_dist],
+
+            ones: BitSet::ones(2 * N * num_hashes)
         };
 
         let n = wave.wave.len();
@@ -102,7 +112,7 @@ where
         };
 
         let get_neighbor_hashes =
-            |wts: [[Option<*mut WaveTile<T, N>>; 2]; N]| -> [[Option<*const BitSlice>; 2]; N] {
+            |wts: [[Option<*mut WaveTile<T, N>>; 2]; N]| -> [[*const BitSlice; 2]; N] {
                 wts.map(|[l, r]| {
                     [
                         l.map(|wt| {
@@ -110,12 +120,18 @@ where
                             let wt = unsafe { &*wt };
                             let hashes: &BitSlice = &wt.hashes;
                             hashes as *const BitSlice
+                        }).unwrap_or({
+                            let ones: &BitSlice = &wave.ones;
+                            ones as *const BitSlice
                         }),
                         r.map(|wt| {
                             // SAFETY: ibid
                             let wt = unsafe { &*wt };
                             let hashes: &BitSlice = &wt.hashes;
                             hashes as *const BitSlice
+                        }).unwrap_or({
+                            let ones: &BitSlice = &wave.ones;
+                            ones as *const BitSlice
                         }),
                     ]
                 })
@@ -141,6 +157,8 @@ where
                 let hashes = get_neighbor_hashes(neighbor_wavetiles);
 
                 wavetile.neighbors = neighbor_wavetiles;
+
+                // this is where we overwrite the temporary pointer
                 wavetile.neighbor_hashes = hashes;
             }
         }
@@ -207,7 +225,7 @@ where
 
     /// Rollback the [`Wave`]. This is used when a [`WaveTile`] has ran out of possible [`Tile`]s.
     fn rollback(&mut self, iter: usize) {
-        println!("rolling back wave");
+        // println!("rolling back wave");
 
         for wavetile in &mut self.wave {
             wavetile.rollback(3, iter);

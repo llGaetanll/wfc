@@ -3,6 +3,7 @@
 ///
 use core::fmt::Debug;
 use std::ops::Deref;
+use std::array::from_fn;
 
 pub const WORD_SIZE: usize = std::mem::size_of::<usize>() * 8;
 
@@ -12,6 +13,21 @@ pub struct BitSet(Vec<usize>);
 
 #[repr(transparent)]
 pub struct BitSlice([usize]);
+
+pub fn gen_bitmasks<const N: usize>(num_hashes: usize, parity: usize) -> [[BitSet; 2]; N] {
+    let size = 2 * N * num_hashes;
+    let n = (size + WORD_SIZE - 1) / WORD_SIZE;
+
+    let odd = parity;
+    let even = 1 - parity;
+
+    from_fn(|axis| {
+        let left = create_mask(n, num_hashes, (2 * axis + odd) * num_hashes);
+        let right = create_mask(n, num_hashes, (2 * axis + even) * num_hashes);
+
+        [left, right]
+    })
+}
 
 impl BitSlice {
     /// Computes whether `self` is a subset of `other`.

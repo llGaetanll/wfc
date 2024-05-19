@@ -4,6 +4,7 @@ use std::fmt::Debug;
 use rand::Rng;
 use rand::RngCore;
 
+use crate::bitset;
 use crate::bitset::BitSet;
 use crate::bitset::BitSlice;
 use crate::tile::Tile;
@@ -21,25 +22,28 @@ pub enum WaveTileError {
 }
 
 pub type NeighborWaveTiles<T, const N: usize> = [[Option<*mut WaveTile<T, N>>; 2]; N];
+pub type Iter = usize;
+pub type Index = usize;
 
 pub struct WaveTile<T, const N: usize>
 where
     T: BoundaryHash<N>,
 {
+    pub parity: usize, // either 0 or 1
     pub hashes: BitSet,
     pub neighbors: NeighborWaveTiles<T, N>,
-    pub neighbor_hashes: [[Option<*const BitSlice>; 2]; N],
+    pub neighbor_hashes: [[*const BitSlice; 2]; N],
 
     pub tiles: Vec<*const Tile<T, N>>,
     pub entropy: usize,
     pub index: WfcNdIndex<N>,
 
     // (iter, index)
-    filtered_tile_indices: Vec<(usize, usize)>,
-    start_index: usize, // cached for speed
+    filtered_tile_indices: Vec<(Iter, Index)>,
+    start_index: Index, // cached for speed
 
-    num_hashes: usize,
-    pub parity: usize, // either 0 or 1
+    alt_bitset: BitSet,      // to avoid allocs at runtime
+    masks: [[BitSet; 2]; N], // NOTE: depends on parity
 }
 
 impl<T, const N: usize> WaveTile<T, N>
@@ -52,25 +56,28 @@ where
         index: WfcNdIndex<N>,
         num_hashes: usize,
         parity: usize,
+        temp_ptr: *const BitSlice
     ) -> Self {
         let entropy = tiles.len();
 
+        let masks = bitset::gen_bitmasks(num_hashes, parity);
+
         let mut wavetile = WaveTile {
+            parity,
             hashes: BitSet::zeros(2 * N * num_hashes),
-            neighbor_hashes: [[None; 2]; N],
+            neighbor_hashes: [[temp_ptr; 2]; N],
             neighbors: [[None; 2]; N],
 
             tiles,
             entropy,
-
             index,
 
             // avoid reallocs during collapse
             filtered_tile_indices: Vec::with_capacity(entropy),
             start_index: 0,
 
-            num_hashes,
-            parity,
+            alt_bitset: BitSet::zeros(2 * N * num_hashes),
+            masks,
         };
 
         wavetile.update_hashes();
@@ -79,8 +86,9 @@ where
     }
 
     /// Collapses a `WaveTile` to one of its possible tiles, at random.
-    pub fn collapse<R>(&mut self, rng: &mut R, iter: usize) -> NeighborWaveTiles<T, N> 
-        where R: RngCore + ?Sized
+    pub fn collapse<R>(&mut self, rng: &mut R, iter: usize) -> NeighborWaveTiles<T, N>
+    where
+        R: RngCore + ?Sized,
     {
         assert!(self.entropy > 1, "called collapse on a collapsed WaveTile!");
 
@@ -106,8 +114,8 @@ where
         }
 
         // new hashes are computed
-        let alt_wavetile_bitset = self.get_alt_wavetile_bitset();
-        self.hashes.intersect(&alt_wavetile_bitset);
+        self.gen_alt_wavetile_bitset();
+        self.hashes.intersect(&self.alt_bitset);
 
         let i = partition_in_place(&mut self.tiles[self.start_index..], |tile| {
             // SAFETY: `Vec` size is fixed before collapse
@@ -151,44 +159,35 @@ where
     }
 
     // Compute a `BitSet` composed of the neighbor's `BitSlice`s
-    // TODO: hot function
-    fn get_alt_wavetile_bitset(&self) -> BitSet {
-        let mut bitset = BitSet::zeros(2 * N * self.num_hashes);
+    // NOTE: hot function
+    fn gen_alt_wavetile_bitset(&mut self) {
+        self.alt_bitset.zero();
 
-        let odd = self.parity;
-        let even = 1 - self.parity;
+        for ([hash_left, hash_right], [mask_left, mask_right]) in
+            self.neighbor_hashes.iter().zip(self.masks.iter())
+        {
+            let right_hashes = {
+                // SAFETY: `Vec`s are not resized during collapse and so don't move
+                let hashes = unsafe { &**hash_right };
 
-        for (axis, [left, right]) in self.neighbor_hashes.iter().enumerate() {
-            let right_hashes = match right {
-                Some(hashes) => {
-                    // SAFETY: `Vec`s are not resized during collapse and so don't move
-                    let hashes = unsafe { &**hashes };
+                let mut res = mask_right.clone(); // cheap
+                res.intersect(hashes);
 
-                    // TODO: cache these masks?
-                    hashes.mask((2 * axis + even) * self.num_hashes, self.num_hashes)
-                }
-                None => {
-                    let ones = BitSet::ones(2 * N * self.num_hashes);
-                    ones.mask((2 * axis + even) * self.num_hashes, self.num_hashes)
-                }
+                res
             };
 
-            let left_hashes = match left {
-                Some(hashes) => {
-                    // SAFETY: `Vec`s are not resized during collapse and so don't move
-                    let hashes = unsafe { &**hashes };
-                    hashes.mask((2 * axis + odd) * self.num_hashes, self.num_hashes)
-                }
-                None => {
-                    let ones = BitSet::ones(2 * N * self.num_hashes);
-                    ones.mask((2 * axis + odd) * self.num_hashes, self.num_hashes)
-                }
+            let left_hashes = {
+                // SAFETY: `Vec`s are not resized during collapse and so don't move
+                let hashes = unsafe { &**hash_left };
+
+                let mut res = mask_left.clone();
+                res.intersect(hashes);
+
+                res
             };
 
-            bitset.union(&right_hashes).union(&left_hashes);
+            self.alt_bitset.union(&right_hashes).union(&left_hashes);
         }
-
-        bitset
     }
 
     /// Given a list of `tile`s that this WaveTile can be, this precomputes the list of valid
