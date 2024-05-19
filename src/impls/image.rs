@@ -104,11 +104,13 @@ where
     }
 }
 
-impl<Sp, P> Rotations<Array2<P>, 2> for TileSet<Array2<P>, 2>
+impl<Sp, P> Rotations<2> for TileSet<Array2<P>, 2>
 where
     Sp: Clone + Hash,
     P: Pixel<Subpixel = Sp> + Hash + Merge,
 {
+    type T = Array2<P>;
+
     fn with_rots(&mut self) -> &mut TileSet<Array2<P>, 2> {
         let mut tiles: HashMap<u64, Array2<P>> = HashMap::new();
 
@@ -132,11 +134,13 @@ where
     }
 }
 
-impl<Sp, P> Flips<Array2<P>, 2> for TileSet<Array2<P>, 2>
+impl<Sp, P> Flips<2> for TileSet<Array2<P>, 2>
 where
     Sp: Clone + Hash,
     P: Pixel<Subpixel = Sp> + Hash + Merge,
 {
+    type T = Array2<P>;
+
     fn with_flips(&mut self) -> &mut TileSet<Array2<P>, 2> {
         let mut tiles: HashMap<u64, Array2<P>> = HashMap::new();
 
@@ -216,10 +220,12 @@ impl<T: Primitive> Merge for Rgba<T> {
     }
 }
 
-impl<P> Recover<Array2<P>, ImageBuffer<P, Vec<<P as Pixel>::Subpixel>>, 2> for Wave<Array2<P>, 2>
+impl<P> Recover<ImageBuffer<P, Vec<<P as Pixel>::Subpixel>>, 2> for Wave<Array2<P>, 2>
 where
     P: Pixel + Hash + Merge,
 {
+    type Input = Array2<P>;
+
     /// Recovers the `T` from type [`Wave<T, N>`]. Note that `T` must be [`Merge`] and [`Stitch`].
     ///
     /// In the future, this [`Merge`] requirement may be relaxed to only non-collapsed [`Wave`]s. This

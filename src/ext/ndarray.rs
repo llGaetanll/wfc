@@ -1,12 +1,10 @@
 use std::array::from_fn;
-use std::mem;
 
 use image::ImageBuffer;
 use image::Pixel;
 
 use ndarray::Array;
 use ndarray::Array2;
-use ndarray::Array3;
 use ndarray::ArrayBase;
 use ndarray::Data;
 use ndarray::Dimension;
@@ -20,7 +18,6 @@ pub type NeighborIndices<const N: usize> = [[Option<NdIndex<N>>; 2]; N];
 pub trait WaveArrayExt<const N: usize> {
     fn max_manhattan_dist(&self) -> usize;
     fn get_nd_index(&self, flat_index: FlatIndex) -> NdIndex<N>;
-    fn get_index_groups(&self, start: NdIndex<N>) -> Vec<Vec<NdIndex<N>>>;
     fn get_index_neighbors(&self, index: NdIndex<N>) -> NeighborIndices<N>;
 }
 
@@ -53,36 +50,6 @@ where
         }
 
         nd_index
-    }
-
-    /// Computes all the Manhattan distance groups
-    fn get_index_groups(&self, start: NdIndex<N>) -> Vec<Vec<NdIndex<N>>> {
-        // compute manhattan distance between `start` and `index`
-        let manhattan_dist = |index: NdIndex<N>| -> usize {
-            start
-                .iter()
-                .zip(index.iter())
-                .map(|(&a, &b)| ((a as isize) - (b as isize)).unsigned_abs())
-                .sum()
-        };
-
-        // compute the tile farthest away from the starting index
-        // this gives us the number of index groups B are in our wave given the `starting_index`
-        let max_man_dist = self.max_manhattan_dist();
-        let mut index_groups: Vec<Vec<NdIndex<N>>> = vec![Vec::new(); max_man_dist];
-
-        for (index, _) in self.iter().enumerate() {
-            let nd_index = self.get_nd_index(index);
-            let dist = manhattan_dist(nd_index);
-
-            if dist == 0 {
-                continue;
-            }
-
-            index_groups[dist - 1].push(nd_index);
-        }
-
-        index_groups
     }
 
     /// For a given NdIndex, returns the list of all the neighbors of that index
@@ -136,80 +103,6 @@ where
         }
 
         ImageBuffer::from_vec(w as u32, h as u32, subpixel_data)
-    }
-}
-
-/// Convert from a 2D array of `Pixel`s to a 3D array of `Subpixel`s
-pub trait ArraySubpixelsExt<P>
-where
-    P: Pixel,
-{
-    fn to_subpixels(self) -> Array3<P::Subpixel>;
-}
-
-impl<P> ArraySubpixelsExt<P> for Array2<P>
-where
-    P: Pixel,
-{
-    /// Convert an array of `Pixel`s to `Subpixel`s
-    fn to_subpixels(self) -> Array3<P::Subpixel> {
-        let s = self.shape();
-        let (w, h) = (s[0], s[1]);
-        let c = P::CHANNEL_COUNT as usize;
-
-        let data = self.into_raw_vec();
-
-        // SAFETY: the input array of subpixels is contiguous in memory
-        let subpixel_data = unsafe {
-            let ptr = data.as_ptr() as *mut P;
-            let length = data.len();
-            let capacity = data.capacity();
-
-            mem::transmute::<Vec<P>, Vec<P::Subpixel>>(Vec::from_raw_parts(
-                ptr,
-                length * c,
-                capacity * c,
-            ))
-        };
-
-        Array3::from_shape_vec((w, h, c), subpixel_data).unwrap()
-    }
-}
-
-/// Convert from a 3D array of `Subpixel`s to a 2D array of `Pixel`s
-pub trait ArrayPixelsExt<P>
-where
-    P: Pixel,
-{
-    fn to_pixels(self) -> Array2<P>;
-}
-
-impl<P> ArrayPixelsExt<P> for Array3<P::Subpixel>
-where
-    P: Pixel,
-{
-    /// Convert an array of `Subpixel`s to `Pixel`s
-    fn to_pixels(self) -> Array2<P> {
-        let s = self.shape();
-        let (w, h) = (s[0], s[1]);
-        let c = P::CHANNEL_COUNT as usize;
-
-        let data = self.into_raw_vec();
-
-        // SAFETY: the input array of pixels is contiguous in memory
-        let pixel_data = unsafe {
-            let ptr = data.as_ptr() as *mut P::Subpixel;
-            let length = data.len();
-            let capacity = data.capacity();
-
-            mem::transmute::<Vec<P::Subpixel>, Vec<P>>(Vec::from_raw_parts(
-                ptr,
-                length.div_ceil(c),
-                capacity.div_ceil(c),
-            ))
-        };
-
-        Array2::from_shape_vec((w, h), pixel_data).unwrap()
     }
 }
 

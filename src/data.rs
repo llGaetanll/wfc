@@ -42,7 +42,7 @@ where
 
 impl<T, const N: usize> TileSet<T, N>
 where
-    T: BoundaryHash<N> + Clone + Merge + Stitch<T, N>,
+    T: BoundaryHash<N> + Clone + Merge + Stitch<N, T = T>,
     DimN<N>: Dimension,
     [usize; N]: NdIndex<DimN<N>>,
 {

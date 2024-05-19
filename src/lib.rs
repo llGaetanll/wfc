@@ -13,6 +13,7 @@ pub mod wave;
 mod wavetile;
 
 // re-export rand so downstream crates don't have to think as hard about matching `wfc`'s version
+pub use ndarray;
 pub use rand;
 
 pub use data::TileSet;

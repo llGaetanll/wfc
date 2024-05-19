@@ -22,20 +22,22 @@ use ndarray::SliceInfoElem;
 use crate::types::DimN;
 
 /// A type `T` implements [`Rotations`] if it can make sense for `T` to be rotated.
-pub trait Rotations<T, const N: usize>
+pub trait Rotations<const N: usize>
 where
-    T: Hash + Clone,
     DimN<N>: Dimension,
 {
+    type T: Hash + Clone;
+
     fn with_rots(&mut self) -> &mut Self;
 }
 
 /// A type `T` implements [`Flips`] if it can make sense for `T` to be flipped.
-pub trait Flips<T, const N: usize>
+pub trait Flips<const N: usize>
 where
-    T: Hash + Clone,
     DimN<N>: Dimension,
 {
+    type T: Hash + Clone;
+
     fn with_flips(&mut self) -> &mut Self;
 }
 
@@ -184,17 +186,21 @@ where
 }
 
 /// A trait for types `T` where it is possible to stitch arrays of `T` back into a single `T`.
-pub trait Stitch<T, const N: usize> {
-    fn stitch(xs: &Array<T, DimN<N>>) -> T;
+pub trait Stitch<const N: usize> {
+    type T;
+
+    fn stitch(xs: &Array<Self::T, DimN<N>>) -> Self::T;
 }
 
 // NOTE: Only for owned arrays.
-impl<T, const N: usize> Stitch<Array<T, DimN<N>>, N> for Array<T, DimN<N>>
+impl<T, const N: usize> Stitch<N> for Array<T, DimN<N>>
 where
     T: Clone,
     DimN<N>: Dimension,
     [usize; N]: NdIndex<DimN<N>>,
 {
+    type T = Array<T, DimN<N>>;
+
     /// Stitch an [`Array`] of [`Array`]s back into a single `Array`. Panics if any of the following
     /// are true.
     ///
@@ -261,15 +267,22 @@ where
     }
 }
 
-/// Recover the `T`. This is used in the wave to convert back to the original type (i.e. produce
+/// Recover the `Input`. This is used in the wave to convert back to the original type (i.e. produce
 /// the full picture output.)
 ///
-/// Note that `T` need be [`Clone`]. This is because wave function collapse may naturally use a
-/// tile more than once, and so may need to access the underlying data (`T`) more than once as
+/// Note that `Input` need be [`Clone`]. This is because wave function collapse may naturally use a
+/// tile more than once, and so may need to access the underlying data (`Input`) more than once as
 /// well. This however has no impact on performance during collapse.
-pub trait Recover<T, U, const N: usize>
-where
-    T: BoundaryHash<N> + Clone,
-{
-    fn recover(&self) -> U;
+
+// Note that `Output` is a generic type parameter, but input is an associated type. This is a
+// design deicision to make the API more argonomic. Indeed all three of `Wave`, `WaveTile`, and
+// `Tile` impl `Recover` from `T` to `T`. However, it is often the case that `Wave`'s `Output` type
+// may differ from its `Input` type. For instance, images are internally represented as 2D arrays
+// of pixels, but when we recover a `Wave` of this type, we don't want a 2D array of pixels as
+// output, we want an image! This need for multiple `Output` type implementations of `Recover`
+// requires us to lift `Output` from a mere associated type to a divine generic argument.
+pub trait Recover<Output, const N: usize> {
+    type Input: BoundaryHash<N> + Clone;
+
+    fn recover(&self) -> Output;
 }

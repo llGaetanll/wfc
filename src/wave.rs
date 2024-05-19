@@ -23,7 +23,7 @@ use crate::wavetile::WaveTileError;
 
 pub struct Wave<T, const N: usize>
 where
-    T: BoundaryHash<N> + Clone + Merge + Stitch<T, N>,
+    T: BoundaryHash<N> + Clone + Merge + Stitch<N, T = T>,
     DimN<N>: Dimension,
     WfcNdIndex<N>: NdIndex<DimN<N>>,
 {
@@ -36,7 +36,7 @@ where
 // TODO: maybe encode whether the `Wave` has collapsed as part of the type?
 impl<T, const N: usize> Wave<T, N>
 where
-    T: BoundaryHash<N> + Clone + Merge + Stitch<T, N>,
+    T: BoundaryHash<N> + Clone + Merge + Stitch<N, T = T>,
     DimN<N>: Dimension,
     WfcNdIndex<N>: NdIndex<DimN<N>>,
 {
@@ -258,12 +258,14 @@ where
     }
 }
 
-impl<T, const N: usize> Recover<T, T, N> for Wave<T, N>
+impl<T, const N: usize> Recover<T, N> for Wave<T, N>
 where
-    T: BoundaryHash<N> + Clone + Merge + Stitch<T, N>,
+    T: BoundaryHash<N> + Clone + Merge + Stitch<N, T = T>,
     DimN<N>: Dimension,
     WfcNdIndex<N>: NdIndex<DimN<N>>,
 {
+    type Input = T;
+
     /// Recovers the `T` from type [`Wave`]. Note that `T` must be [`Merge`] and [`Stitch`].
     ///
     /// In the future, this [`Merge`] requirement may be relaxed to only non-collapsed [`Wave`]s. This
