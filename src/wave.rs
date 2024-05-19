@@ -55,6 +55,8 @@ where
             .map(|tile| tile as *const Tile<T, N>)
             .collect();
 
+        // acts as a temporary pointer while we get the wavetile's actual neighbors, or point to
+        // the `ones` BitSet.
         let dummy_bitset = BitSet::new();
         let temp_ptr = {
             let ptr: &BitSlice = &dummy_bitset;

@@ -18,7 +18,6 @@ use crate::util::partition_in_place;
 #[derive(Debug)]
 pub enum WaveTileError {
     OutOfTiles,
-    RollbackOOB,
 }
 
 pub type NeighborWaveTiles<T, const N: usize> = [[Option<*mut WaveTile<T, N>>; 2]; N];
