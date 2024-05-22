@@ -18,7 +18,9 @@ use ndarray::NdIndex;
 use ndarray::SliceArg;
 use ndarray::SliceInfo;
 use ndarray::SliceInfoElem;
+use rand::RngCore;
 
+use crate::ext::ndarray::NdIndex as WfcNdIndex;
 use crate::types::DimN;
 
 /// A type `T` implements [`Rotations`] if it can make sense for `T` to be rotated.
@@ -275,7 +277,7 @@ where
 /// well. This however has no impact on performance during collapse.
 
 // Note that `Output` is a generic type parameter, but input is an associated type. This is a
-// design deicision to make the API more argonomic. Indeed all three of `Wave`, `WaveTile`, and
+// design deicision to make the API more ergonomic. Indeed all three of `Wave`, `WaveTile`, and
 // `Tile` impl `Recover` from `T` to `T`. However, it is often the case that `Wave`'s `Output` type
 // may differ from its `Input` type. For instance, images are internally represented as 2D arrays
 // of pixels, but when we recover a `Wave` of this type, we don't want a 2D array of pixels as
@@ -285,4 +287,97 @@ pub trait Recover<Output, const N: usize> {
     type Input: BoundaryHash<N> + Clone;
 
     fn recover(&self) -> Output;
+}
+
+/// A simple wrapper trait for types which can be used as tiles of a [`Wave`]. This trait is
+/// primarily to avoid repeating the underlying trait bounds all over the crate.
+pub trait WaveTile<Inner, Output, const N: usize>: Clone + BoundaryHash<N> + Stitch<N, T = Inner> + Recover<Output, N, Input = Inner> {}
+
+pub struct Flat;
+
+pub struct Torus;
+pub struct ProjectivePlane;
+pub struct KleinBottle;
+
+pub type Neighbors<const N: usize> = [[Option<WfcNdIndex<N>>; 2]; N];
+
+pub trait Surface<const N: usize> {
+    fn neighborhood(shape: [usize; N], i: WfcNdIndex<N>) -> Neighbors<N>;
+}
+
+/// A market trait for [`Surface`]s which wrap.
+pub trait WrappingSurface<const N: usize>: Surface<N> {}
+
+impl<const N: usize> Surface<N> for Flat {
+    fn neighborhood(shape: [usize; N], i: WfcNdIndex<N>) -> [[Option<WfcNdIndex<N>>; 2]; N] {
+        from_fn(|axis| {
+            let left = if i[axis] == 0 {
+                None
+            } else {
+                let mut left = i;
+                left[axis] -= 1;
+                Some(left)
+            };
+
+            let right = if i[axis] == shape[axis] - 1 {
+                None
+            } else {
+                let mut right = i;
+                right[axis] += 1;
+                Some(right)
+            };
+
+            [left, right]
+        })
+    }
+}
+
+impl Surface<2> for Torus {
+    fn neighborhood(shape: [usize; 2], i: WfcNdIndex<2>) -> Neighbors<2> {
+        todo!()
+    }
+}
+
+impl Surface<2> for ProjectivePlane {
+    fn neighborhood(shape: [usize; 2], i: WfcNdIndex<2>) -> Neighbors<2> {
+        todo!()
+    }
+}
+
+impl Surface<2> for KleinBottle {
+    fn neighborhood(shape: [usize; 2], i: WfcNdIndex<2>) -> Neighbors<2> {
+        todo!()
+    }
+}
+
+impl WrappingSurface<2> for Torus {}
+impl WrappingSurface<2> for ProjectivePlane {}
+impl WrappingSurface<2> for KleinBottle {}
+
+pub trait WaveBase<Inner, Output, S, const N: usize>
+where
+    Inner: WaveTile<Inner, Output, N>,
+    S: Surface<N>
+{
+    fn init() -> Self;
+}
+
+pub trait Wave<Inner, Output, S, const N: usize>: WaveBase<Inner, Output, S, N>
+where
+    Inner: WaveTile<Inner, Output, N>,
+    S: Surface<N>
+{
+    fn collase<R>(&mut self, rng: &mut R) -> Output
+    where
+        R: RngCore + ?Sized;
+}
+
+pub trait ParWave<Inner, Output, S, const N: usize>: WaveBase<Inner, Output, S, N>
+where
+    Inner: Send + Sync + WaveTile<Inner, Output, N>,
+    S: Surface<N>
+{
+    fn collase_parallel<R>(&mut self, rng: &mut R) -> Output
+    where
+        R: RngCore + ?Sized;
 }
