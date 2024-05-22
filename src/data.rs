@@ -26,7 +26,7 @@ where
     co_tiles: Vec<Tile<Inner, N>>,
 
     tile_size: usize,
-    num_hashes: usize
+    num_hashes: usize,
 }
 
 impl<Inner, Outer, const N: usize> TileSet<Inner, Outer, N>
@@ -41,7 +41,7 @@ where
             tiles: vec![],
             co_tiles: vec![],
             tile_size,
-            num_hashes: 0
+            num_hashes: 0,
         }
     }
 }
@@ -54,7 +54,7 @@ where
 {
     pub fn wave<S>(&mut self, shape: DimN<N>) -> Wave<Inner, Outer, S, N>
     where
-        S: Surface,
+        S: Surface<N>,
     {
         let mut hash_index: usize = 0;
 

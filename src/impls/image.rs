@@ -76,8 +76,7 @@ where
     /// - The list of images is empty
     /// - The images are non-square
     /// - The images are not all the same size
-    pub fn from_images(tiles: Vec<I>) -> Self
-    {
+    pub fn from_images(tiles: Vec<I>) -> Self {
         assert!(!tiles.is_empty(), "tiles list is empty");
 
         let (width, height) = tiles[0].dimensions();
@@ -104,8 +103,7 @@ where
     }
 }
 
-impl<T: Hash + Clone, Outer> Rotations<2> for TileSet<Array2<T>, Outer, 2>
-{
+impl<T: Hash + Clone, Outer> Rotations<2> for TileSet<Array2<T>, Outer, 2> {
     type T = Array2<T>;
 
     fn with_rots(&mut self) -> &mut Self {
@@ -131,8 +129,7 @@ impl<T: Hash + Clone, Outer> Rotations<2> for TileSet<Array2<T>, Outer, 2>
     }
 }
 
-impl<T: Hash + Clone, Outer> Flips<2> for TileSet<Array2<T>, Outer, 2>
-{
+impl<T: Hash + Clone, Outer> Flips<2> for TileSet<Array2<T>, Outer, 2> {
     type T = Array2<T>;
 
     fn with_flips(&mut self) -> &mut Self {
@@ -213,24 +210,3 @@ impl<T: Primitive> Merge for Rgba<T> {
         Rgba::from(px)
     }
 }
-
-// impl<P> Recover<ImageBuffer<P, Vec<<P as Pixel>::Subpixel>>, 2> for Wave<Array2<P>, 2>
-// where
-//     P: Pixel + Hash + Merge,
-// {
-//     type Input = Array2<P>;
-//
-//     /// Recovers the `T` from type [`Wave<T, N>`]. Note that `T` must be [`Merge`] and [`Stitch`].
-//     ///
-//     /// In the future, this [`Merge`] requirement may be relaxed to only non-collapsed [`Wave`]s. This
-//     /// is a temporary limitation of the API. TODO
-//     fn recover(&self) -> ImageBuffer<P, Vec<<P as Pixel>::Subpixel>> {
-//         let ts: Vec<Array2<P>> = self.wave.iter().map(|wt| wt.recover()).collect();
-//
-//         let dim = self.wave.raw_dim();
-//         let array = Array2::from_shape_vec(dim, ts).unwrap();
-//         let arr = Array2::<P>::stitch(&array);
-//
-//         arr.to_image().expect("failed to recover image from Wave")
-//     }
-// }
