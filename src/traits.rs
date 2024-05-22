@@ -22,6 +22,7 @@ use rand::RngCore;
 
 use crate::ext::ndarray::NdIndex as WfcNdIndex;
 use crate::types::DimN;
+use crate::TileSet;
 
 /// A type `T` implements [`Rotations`] if it can make sense for `T` to be rotated.
 pub trait Rotations<const N: usize>
@@ -276,22 +277,22 @@ where
 /// tile more than once, and so may need to access the underlying data (`Input`) more than once as
 /// well. This however has no impact on performance during collapse.
 
-// Note that `Output` is a generic type parameter, but input is an associated type. This is a
+// Note that `Outer` is a generic type parameter, but input is an associated type. This is a
 // design deicision to make the API more ergonomic. Indeed all three of `Wave`, `WaveTile`, and
-// `Tile` impl `Recover` from `T` to `T`. However, it is often the case that `Wave`'s `Output` type
+// `Tile` impl `Recover` from `T` to `T`. However, it is often the case that `Wave`'s `Outer` type
 // may differ from its `Input` type. For instance, images are internally represented as 2D arrays
 // of pixels, but when we recover a `Wave` of this type, we don't want a 2D array of pixels as
-// output, we want an image! This need for multiple `Output` type implementations of `Recover`
-// requires us to lift `Output` from a mere associated type to a divine generic argument.
-pub trait Recover<Output, const N: usize> {
+// output, we want an image! This need for multiple `Outer` type implementations of `Recover`
+// requires us to lift `Outer` from a mere associated type to a divine generic argument.
+pub trait Recover<Outer, const N: usize> {
     type Input: BoundaryHash<N> + Clone;
 
-    fn recover(&self) -> Output;
+    fn recover(&self) -> Outer;
 }
 
 /// A simple wrapper trait for types which can be used as tiles of a [`Wave`]. This trait is
 /// primarily to avoid repeating the underlying trait bounds all over the crate.
-pub trait WaveTile<Inner, Output, const N: usize>: Clone + BoundaryHash<N> + Stitch<N, T = Inner> + Recover<Output, N, Input = Inner> {}
+pub trait WaveTile<Inner, Outer, const N: usize>: Clone + BoundaryHash<N> + Stitch<N, T = Inner> + Recover<Outer, N, Input = Inner> {}
 
 pub struct Flat;
 
@@ -354,30 +355,36 @@ impl WrappingSurface<2> for Torus {}
 impl WrappingSurface<2> for ProjectivePlane {}
 impl WrappingSurface<2> for KleinBottle {}
 
-pub trait WaveBase<Inner, Output, S, const N: usize>
+pub trait WaveBase<Inner, Outer, S, const N: usize>
 where
-    Inner: WaveTile<Inner, Output, N>,
+    Inner: WaveTile<Inner, Outer, N>,
+    Outer: BoundaryHash<N>,
+    DimN<N>: Dimension,
     S: Surface<N>
 {
-    fn init() -> Self;
+    fn init(tileset: &TileSet<Outer, N>, shape: DimN<N>) -> Self;
 }
 
-pub trait Wave<Inner, Output, S, const N: usize>: WaveBase<Inner, Output, S, N>
+pub trait Wave<Inner, Outer, S, const N: usize>: WaveBase<Inner, Outer, S, N>
 where
-    Inner: WaveTile<Inner, Output, N>,
+    Inner: WaveTile<Inner, Outer, N>,
+    Outer: BoundaryHash<N>,
+    DimN<N>: Dimension,
     S: Surface<N>
 {
-    fn collase<R>(&mut self, rng: &mut R) -> Output
+    fn collase<R>(&mut self, rng: &mut R) -> Outer
     where
         R: RngCore + ?Sized;
 }
 
-pub trait ParWave<Inner, Output, S, const N: usize>: WaveBase<Inner, Output, S, N>
+pub trait ParWave<Inner, Outer, S, const N: usize>: WaveBase<Inner, Outer, S, N>
 where
-    Inner: Send + Sync + WaveTile<Inner, Output, N>,
+    Inner: Send + Sync + WaveTile<Inner, Outer, N>,
+    Outer: BoundaryHash<N>,
+    DimN<N>: Dimension,
     S: Surface<N>
 {
-    fn collase_parallel<R>(&mut self, rng: &mut R) -> Output
+    fn collase_parallel<R>(&mut self, rng: &mut R) -> Outer
     where
         R: RngCore + ?Sized;
 }
