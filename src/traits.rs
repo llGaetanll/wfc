@@ -285,14 +285,17 @@ where
 // output, we want an image! This need for multiple `Outer` type implementations of `Recover`
 // requires us to lift `Outer` from a mere associated type to a divine generic argument.
 pub trait Recover<Outer, const N: usize> {
-    type Input: BoundaryHash<N> + Clone;
+    type Inner: BoundaryHash<N> + Clone;
 
     fn recover(&self) -> Outer;
 }
 
 /// A simple wrapper trait for types which can be used as tiles of a [`Wave`]. This trait is
 /// primarily to avoid repeating the underlying trait bounds all over the crate.
-pub trait WaveTile<Inner, Outer, const N: usize>: Clone + BoundaryHash<N> + Stitch<N, T = Inner> + Recover<Outer, N, Input = Inner> {}
+pub trait WaveTile<Inner, Outer, const N: usize>:
+    Clone + BoundaryHash<N> + Stitch<N, T = Inner> + Recover<Outer, N, Inner = Inner>
+{
+}
 
 pub struct Flat;
 
@@ -300,16 +303,21 @@ pub struct Torus;
 pub struct ProjectivePlane;
 pub struct KleinBottle;
 
-pub type Neighbors<const N: usize> = [[Option<WfcNdIndex<N>>; 2]; N];
+pub trait Surface {}
+impl Surface for Flat {}
+impl Surface for Torus {}
+impl Surface for ProjectivePlane {}
+impl Surface for KleinBottle {}
 
-pub trait Surface<const N: usize> {
-    fn neighborhood(shape: [usize; N], i: WfcNdIndex<N>) -> Neighbors<N>;
+pub trait FlatSurface<const N: usize>: Surface {
+    fn neighborhood(shape: [usize; N], i: WfcNdIndex<N>) -> [[Option<WfcNdIndex<N>>; 2]; N];
 }
 
-/// A market trait for [`Surface`]s which wrap.
-pub trait WrappingSurface<const N: usize>: Surface<N> {}
+pub trait WrappingSurface<const N: usize>: Surface {
+    fn neighborhood(shape: [usize; N], i: WfcNdIndex<N>) -> [[WfcNdIndex<N>; 2]; N];
+}
 
-impl<const N: usize> Surface<N> for Flat {
+impl<const N: usize> FlatSurface<N> for Flat {
     fn neighborhood(shape: [usize; N], i: WfcNdIndex<N>) -> [[Option<WfcNdIndex<N>>; 2]; N] {
         from_fn(|axis| {
             let left = if i[axis] == 0 {
@@ -333,44 +341,38 @@ impl<const N: usize> Surface<N> for Flat {
     }
 }
 
-impl Surface<2> for Torus {
-    fn neighborhood(shape: [usize; 2], i: WfcNdIndex<2>) -> Neighbors<2> {
+impl WrappingSurface<2> for Torus {
+    fn neighborhood(shape: [usize; 2], i: WfcNdIndex<2>) -> [[WfcNdIndex<2>; 2]; 2] {
         todo!()
     }
 }
 
-impl Surface<2> for ProjectivePlane {
-    fn neighborhood(shape: [usize; 2], i: WfcNdIndex<2>) -> Neighbors<2> {
+impl WrappingSurface<2> for ProjectivePlane {
+    fn neighborhood(shape: [usize; 2], i: WfcNdIndex<2>) -> [[WfcNdIndex<2>; 2]; 2] {
         todo!()
     }
 }
 
-impl Surface<2> for KleinBottle {
-    fn neighborhood(shape: [usize; 2], i: WfcNdIndex<2>) -> Neighbors<2> {
+impl WrappingSurface<2> for KleinBottle {
+    fn neighborhood(shape: [usize; 2], i: WfcNdIndex<2>) -> [[WfcNdIndex<2>; 2]; 2] {
         todo!()
     }
 }
-
-impl WrappingSurface<2> for Torus {}
-impl WrappingSurface<2> for ProjectivePlane {}
-impl WrappingSurface<2> for KleinBottle {}
 
 pub trait WaveBase<Inner, Outer, S, const N: usize>
 where
     Inner: WaveTile<Inner, Outer, N>,
-    Outer: BoundaryHash<N>,
     DimN<N>: Dimension,
-    S: Surface<N>
+    S: Surface,
 {
-    fn init(tileset: &TileSet<Outer, N>, shape: DimN<N>) -> Self;
+    fn init(tileset: &TileSet<Inner, Outer, N>, shape: DimN<N>) -> Self;
 }
 
 pub trait Wave<Inner, Outer, S, const N: usize>: WaveBase<Inner, Outer, S, N>
 where
     Inner: WaveTile<Inner, Outer, N>,
-    Outer: BoundaryHash<N>,
     DimN<N>: Dimension,
-    S: Surface<N>
+    S: Surface,
 {
     fn collase<R>(&mut self, rng: &mut R) -> Outer
     where
@@ -380,9 +382,8 @@ where
 pub trait ParWave<Inner, Outer, S, const N: usize>: WaveBase<Inner, Outer, S, N>
 where
     Inner: Send + Sync + WaveTile<Inner, Outer, N>,
-    Outer: BoundaryHash<N>,
     DimN<N>: Dimension,
-    S: Surface<N>
+    S: Surface,
 {
     fn collase_parallel<R>(&mut self, rng: &mut R) -> Outer
     where

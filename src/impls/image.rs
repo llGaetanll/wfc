@@ -15,14 +15,15 @@ use ndarray::Array2;
 
 use crate::data::TileSet;
 use crate::ext::image::ImageToArrayExt;
-use crate::ext::ndarray::ArrayToImageExt;
 use crate::ext::ndarray::ArrayTransformations;
+use crate::traits::Flat;
 use crate::traits::Flips;
 use crate::traits::Merge;
-use crate::traits::Recover;
 use crate::traits::Rotations;
-use crate::traits::Stitch;
 use crate::wave::Wave;
+
+pub type ImageWave<P> = Wave<Array2<P>, ImageBuffer<P, Vec<<P as Pixel>::Subpixel>>, Flat, 2>;
+pub type ImageTileSet<P, I> = TileSet<Array2<P>, I, 2>;
 
 pub struct ImageParams<I: GenericImage> {
     pub image: I,
@@ -36,7 +37,7 @@ where
     I: GenericImage<Pixel = P>,
 {
     /// Construct a `TileSet` from an `image` and `win_size`.
-    pub fn tileset(&self) -> TileSet<Array2<P>, 2> {
+    pub fn tileset(&self) -> ImageTileSet<P, I> {
         let image = &self.image;
 
         let pixels: Array2<P> = image.to_array().unwrap();
@@ -63,10 +64,11 @@ where
     }
 }
 
-impl<Sp, P> TileSet<Array2<P>, 2>
+impl<Sp, P, I> ImageTileSet<P, I>
 where
     Sp: Hash,
     P: Pixel<Subpixel = Sp> + Hash + Merge,
+    I: GenericImage<Pixel = P>,
 {
     /// Constructs a `TileSet` from a list of images.
     ///
@@ -74,9 +76,7 @@ where
     /// - The list of images is empty
     /// - The images are non-square
     /// - The images are not all the same size
-    pub fn from_images<I>(tiles: Vec<I>) -> Self
-    where
-        I: GenericImage<Pixel = P>,
+    pub fn from_images(tiles: Vec<I>) -> Self
     {
         assert!(!tiles.is_empty(), "tiles list is empty");
 
@@ -104,15 +104,12 @@ where
     }
 }
 
-impl<Sp, P> Rotations<2> for TileSet<Array2<P>, 2>
-where
-    Sp: Clone + Hash,
-    P: Pixel<Subpixel = Sp> + Hash + Merge,
+impl<T: Hash + Clone, Outer> Rotations<2> for TileSet<Array2<T>, Outer, 2>
 {
-    type T = Array2<P>;
+    type T = Array2<T>;
 
-    fn with_rots(&mut self) -> &mut TileSet<Array2<P>, 2> {
-        let mut tiles: HashMap<u64, Array2<P>> = HashMap::new();
+    fn with_rots(&mut self) -> &mut Self {
+        let mut tiles: HashMap<u64, Array2<T>> = HashMap::new();
 
         for tile in &self.data {
             for rotation in tile.rotations() {
@@ -134,15 +131,12 @@ where
     }
 }
 
-impl<Sp, P> Flips<2> for TileSet<Array2<P>, 2>
-where
-    Sp: Clone + Hash,
-    P: Pixel<Subpixel = Sp> + Hash + Merge,
+impl<T: Hash + Clone, Outer> Flips<2> for TileSet<Array2<T>, Outer, 2>
 {
-    type T = Array2<P>;
+    type T = Array2<T>;
 
-    fn with_flips(&mut self) -> &mut TileSet<Array2<P>, 2> {
-        let mut tiles: HashMap<u64, Array2<P>> = HashMap::new();
+    fn with_flips(&mut self) -> &mut Self {
+        let mut tiles: HashMap<u64, Array2<T>> = HashMap::new();
 
         for tile in &self.data {
             for rotation in tile.flips() {
@@ -220,23 +214,23 @@ impl<T: Primitive> Merge for Rgba<T> {
     }
 }
 
-impl<P> Recover<ImageBuffer<P, Vec<<P as Pixel>::Subpixel>>, 2> for Wave<Array2<P>, 2>
-where
-    P: Pixel + Hash + Merge,
-{
-    type Input = Array2<P>;
-
-    /// Recovers the `T` from type [`Wave<T, N>`]. Note that `T` must be [`Merge`] and [`Stitch`].
-    ///
-    /// In the future, this [`Merge`] requirement may be relaxed to only non-collapsed [`Wave`]s. This
-    /// is a temporary limitation of the API. TODO
-    fn recover(&self) -> ImageBuffer<P, Vec<<P as Pixel>::Subpixel>> {
-        let ts: Vec<Array2<P>> = self.wave.iter().map(|wt| wt.recover()).collect();
-
-        let dim = self.wave.raw_dim();
-        let array = Array2::from_shape_vec(dim, ts).unwrap();
-        let arr = Array2::<P>::stitch(&array);
-
-        arr.to_image().expect("failed to recover image from Wave")
-    }
-}
+// impl<P> Recover<ImageBuffer<P, Vec<<P as Pixel>::Subpixel>>, 2> for Wave<Array2<P>, 2>
+// where
+//     P: Pixel + Hash + Merge,
+// {
+//     type Input = Array2<P>;
+//
+//     /// Recovers the `T` from type [`Wave<T, N>`]. Note that `T` must be [`Merge`] and [`Stitch`].
+//     ///
+//     /// In the future, this [`Merge`] requirement may be relaxed to only non-collapsed [`Wave`]s. This
+//     /// is a temporary limitation of the API. TODO
+//     fn recover(&self) -> ImageBuffer<P, Vec<<P as Pixel>::Subpixel>> {
+//         let ts: Vec<Array2<P>> = self.wave.iter().map(|wt| wt.recover()).collect();
+//
+//         let dim = self.wave.raw_dim();
+//         let array = Array2::from_shape_vec(dim, ts).unwrap();
+//         let arr = Array2::<P>::stitch(&array);
+//
+//         arr.to_image().expect("failed to recover image from Wave")
+//     }
+// }

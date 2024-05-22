@@ -29,7 +29,7 @@ impl<T, const N: usize> Recover<T, N> for Tile<T, N>
 where
     T: BoundaryHash<N> + Clone,
 {
-    type Input = T;
+    type Inner = T;
 
     /// Recover the `T` for type `Tile<T, N>`.
     fn recover(&self) -> T {

@@ -1,5 +1,6 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::marker::PhantomData;
 
 use ndarray::Dimension;
 use ndarray::NdIndex;
@@ -7,46 +8,54 @@ use ndarray::NdIndex;
 use crate::bitset::BitSet;
 use crate::tile::Tile;
 use crate::traits::BoundaryHash;
-use crate::traits::Merge;
-use crate::traits::Stitch;
+use crate::traits::Surface;
+use crate::traits::WaveBase;
+use crate::traits::WaveTile;
 use crate::types::DimN;
 use crate::wave::Wave;
 
-pub struct TileSet<T, const N: usize>
+pub struct TileSet<Inner, Outer, const N: usize>
 where
-    T: BoundaryHash<N>,
+    Inner: BoundaryHash<N>,
     DimN<N>: Dimension,
 {
-    pub data: Vec<T>,
+    _outer: PhantomData<Outer>,
+    pub data: Vec<Inner>,
 
-    tiles_lr: Vec<Tile<T, N>>,
-    tiles_rl: Vec<Tile<T, N>>,
+    tiles: Vec<Tile<Inner, N>>,
+    co_tiles: Vec<Tile<Inner, N>>,
 
     tile_size: usize,
+    num_hashes: usize
 }
 
-impl<T, const N: usize> TileSet<T, N>
+impl<Inner, Outer, const N: usize> TileSet<Inner, Outer, N>
 where
-    T: BoundaryHash<N>,
+    Inner: BoundaryHash<N>,
     DimN<N>: Dimension,
 {
-    pub fn new(data: Vec<T>, tile_size: usize) -> Self {
+    pub fn new(data: Vec<Inner>, tile_size: usize) -> Self {
         TileSet {
+            _outer: PhantomData,
             data,
-            tiles_lr: vec![],
-            tiles_rl: vec![],
+            tiles: vec![],
+            co_tiles: vec![],
             tile_size,
+            num_hashes: 0
         }
     }
 }
 
-impl<T, const N: usize> TileSet<T, N>
+impl<Inner, Outer, const N: usize> TileSet<Inner, Outer, N>
 where
-    T: BoundaryHash<N> + Clone + Merge + Stitch<N, T = T>,
+    Inner: WaveTile<Inner, Outer, N>,
     DimN<N>: Dimension,
     [usize; N]: NdIndex<DimN<N>>,
 {
-    pub fn wave(&mut self, shape: DimN<N>) -> Wave<T, N> {
+    pub fn wave<S>(&mut self, shape: DimN<N>) -> Wave<Inner, Outer, S, N>
+    where
+        S: Surface,
+    {
         let mut hash_index: usize = 0;
 
         // key: hash, value: index into `tile_hashes`
@@ -67,11 +76,11 @@ where
             }
         }
 
-        let num_hashes = unique_hashes.len();
+        self.num_hashes = unique_hashes.len();
 
         for (hashes, data) in tile_hashes.iter().zip(&self.data) {
-            let mut hashes_lr = BitSet::zeros(2 * N * num_hashes);
-            let mut hashes_rl = BitSet::zeros(2 * N * num_hashes);
+            let mut bitset = BitSet::zeros(2 * N * self.num_hashes);
+            let mut co_bitset = BitSet::zeros(2 * N * self.num_hashes);
 
             // This is where we define the mapping in our tile's bitset. Some explanation is in
             // order.
@@ -103,19 +112,19 @@ where
                 let index_left = unique_hashes[left];
                 let index_right = unique_hashes[right];
 
-                hashes_lr.on((2 * i) * num_hashes + index_left);
-                hashes_lr.on((2 * i + 1) * num_hashes + index_right);
+                bitset.on((2 * i) * self.num_hashes + index_left);
+                bitset.on((2 * i + 1) * self.num_hashes + index_right);
 
-                hashes_rl.on((2 * i + 1) * num_hashes + index_left);
-                hashes_rl.on((2 * i) * num_hashes + index_right);
+                co_bitset.on((2 * i + 1) * self.num_hashes + index_left);
+                co_bitset.on((2 * i) * self.num_hashes + index_right);
             }
 
-            self.tiles_lr
-                .push(Tile::new(data.clone(), hashes_lr, self.tile_size));
-            self.tiles_rl
-                .push(Tile::new(data.clone(), hashes_rl, self.tile_size));
+            self.tiles
+                .push(Tile::new(data.clone(), bitset, self.tile_size));
+            self.co_tiles
+                .push(Tile::new(data.clone(), co_bitset, self.tile_size));
         }
 
-        Wave::new(&self.tiles_lr, &self.tiles_rl, shape, num_hashes)
+        Wave::init(self, shape)
     }
 }

@@ -208,7 +208,7 @@ impl<T, const N: usize> Recover<T, N> for WaveTile<T, N>
 where
     T: BoundaryHash<N> + Clone + Merge,
 {
-    type Input = T;
+    type Inner = T;
 
     /// Recovers the `T` for type `WaveTile<T, N>`. Note that `T` must be `Merge`.
     ///
