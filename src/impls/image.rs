@@ -7,27 +7,25 @@ use std::hash::Hasher;
 use image::GenericImage;
 use image::ImageBuffer;
 use image::Pixel;
-
 use image::Primitive;
 use image::Rgb;
 use image::Rgba;
+
 use ndarray::Array2;
 
 use crate::data::TileSet;
 use crate::ext::image::ImageToArrayExt;
 use crate::ext::ndarray::ArrayToImageExt;
 use crate::ext::ndarray::ArrayTransformations;
-use crate::traits::Flat;
+use crate::surface::FlatWave;
 use crate::traits::Flips;
 use crate::traits::Merge;
 use crate::traits::Rotations;
-use crate::traits::WaveTile;
-use crate::wave::Wave;
 use crate::Recover;
 
 pub type Image<P> = ImageBuffer<P, Vec<<P as Pixel>::Subpixel>>;
-pub type ImageWave<P, I> = Wave<Array2<P>, I, Flat, 2>;
-pub type ImageTileSet<P, I> = TileSet<Array2<P>, I, 2>;
+pub type ImageWave<P> = FlatWave<Array2<P>, Image<P>, 2>;
+pub type ImageTileSet<P> = TileSet<Array2<P>, Image<P>, 2>;
 
 pub struct ImageParams<I: GenericImage> {
     pub image: I,
@@ -41,7 +39,7 @@ where
     I: GenericImage<Pixel = P>,
 {
     /// Construct a `TileSet` from an `image` and `win_size`.
-    pub fn tileset(&self) -> ImageTileSet<P, Image<P>> {
+    pub fn tileset(&self) -> ImageTileSet<P> {
         let image = &self.image;
 
         let pixels: Array2<P> = image.to_array().unwrap();
@@ -68,11 +66,10 @@ where
     }
 }
 
-impl<Sp, P, I> ImageTileSet<P, I>
+impl<Sp, P> ImageTileSet<P>
 where
     Sp: Hash,
     P: Pixel<Subpixel = Sp> + Hash + Merge,
-    I: GenericImage<Pixel = P>,
 {
     /// Constructs a `TileSet` from a list of images.
     ///
@@ -80,7 +77,10 @@ where
     /// - The list of images is empty
     /// - The images are non-square
     /// - The images are not all the same size
-    pub fn from_images(tiles: Vec<I>) -> ImageTileSet<P, Image<P>> {
+    pub fn from_images<I>(tiles: Vec<I>) -> ImageTileSet<P>
+    where
+        I: GenericImage<Pixel = P>,
+    {
         assert!(!tiles.is_empty(), "tiles list is empty");
 
         let (width, height) = tiles[0].dimensions();
@@ -222,28 +222,3 @@ impl<P: Pixel> Recover<Image<P>> for Array2<P> {
         self.clone().to_image().unwrap()
     }
 }
-
-impl<P: Pixel + Hash> WaveTile<Array2<P>, Image<P>, 2> for Array2<P> {}
-
-// impl<S, P, I> Recover<I> for Wave<Array2<P>, I, S, 2>
-// where
-//     S: Surface<2>,
-//     P: Pixel + Hash + Merge,
-//     I: GenericImage<Pixel = P>
-// {
-//     type Inner = Array2<P>;
-//
-//     /// Recovers the `T` from type [`Wave<T, N>`]. Note that `T` must be [`Merge`] and [`Stitch`].
-//     ///
-//     /// In the future, this [`Merge`] requirement may be relaxed to only non-collapsed [`Wave`]s. This
-//     /// is a temporary limitation of the API. TODO
-//     fn recover(&self) -> I {
-//         let ts: Vec<Array2<P>> = self.wave.iter().map(|wt| wt.recover()).collect();
-//
-//         let dim = self.wave.raw_dim();
-//         let array = Array2::from_shape_vec(dim, ts).unwrap();
-//         let arr = Array2::<P>::stitch(&array);
-//
-//         arr.recover()
-//     }
-// }

@@ -8,7 +8,6 @@ use crate::bitset;
 use crate::bitset::BitSet;
 use crate::bitset::BitSlice;
 use crate::tile::Tile;
-use crate::traits::BoundaryHash;
 use crate::traits::Merge;
 use crate::traits::Recover;
 

@@ -9,8 +9,10 @@ use ndarray::Ix2;
 use wfc::data::TileSet;
 use wfc::impls::image::ImageWave;
 use wfc::rand;
-use wfc::traits::WaveBase;
-use wfc::traits::{Flips, Rotations, Wave};
+use wfc::wave::traits::Wave;
+use wfc::wave::traits::WaveBase;
+use wfc::Flips;
+use wfc::Rotations;
 
 type Img<P> = ImageBuffer<P, Vec<<P as Pixel>::Subpixel>>;
 

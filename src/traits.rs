@@ -18,11 +18,8 @@ use ndarray::NdIndex;
 use ndarray::SliceArg;
 use ndarray::SliceInfo;
 use ndarray::SliceInfoElem;
-use rand::RngCore;
 
-use crate::ext::ndarray::NdIndex as WfcNdIndex;
 use crate::types::DimN;
-use crate::TileSet;
 
 /// A type `T` implements [`Rotations`] if it can make sense for `T` to be rotated.
 pub trait Rotations<const N: usize>
@@ -290,96 +287,25 @@ pub trait Recover<Outer> {
 
 /// A simple wrapper trait for types which can be used as tiles of a [`Wave`]. This trait is
 /// primarily to avoid repeating the underlying trait bounds all over the crate.
-pub trait WaveTile<Inner, Outer, const N: usize>:
+pub trait WaveTileable<Inner, Outer, const N: usize>:
     Clone + BoundaryHash<N> + Stitch<N, T = Inner> + Recover<Outer, Inner = Inner>
 {
 }
 
-pub struct Flat;
-pub struct Torus;
-pub struct ProjectivePlane;
-pub struct KleinBottle;
-
-pub trait Surface<const N: usize> {
-    fn neighborhood(shape: [usize; N], i: WfcNdIndex<N>) -> [[Option<WfcNdIndex<N>>; 2]; N];
+macro_rules! impl_wavetileable {
+    ($n:expr) => {
+        impl<T, U> WaveTileable<Array<T, DimN<$n>>, U, $n> for Array<T, DimN<$n>>
+        where
+            T: Clone + Hash,
+            Array<T, DimN<$n>>: Recover<U, Inner = Array<T, DimN<$n>>>,
+        {
+        }
+    };
 }
 
-impl<const N: usize> Surface<N> for Flat {
-    fn neighborhood(shape: [usize; N], i: WfcNdIndex<N>) -> [[Option<WfcNdIndex<N>>; 2]; N] {
-        from_fn(|axis| {
-            let left = if i[axis] == 0 {
-                None
-            } else {
-                let mut left = i;
-                left[axis] -= 1;
-                Some(left)
-            };
-
-            let right = if i[axis] == shape[axis] - 1 {
-                None
-            } else {
-                let mut right = i;
-                right[axis] += 1;
-                Some(right)
-            };
-
-            [left, right]
-        })
-    }
-}
-
-impl Surface<2> for Torus {
-    fn neighborhood(shape: [usize; 2], i: WfcNdIndex<2>) -> [[Option<WfcNdIndex<2>>; 2]; 2] {
-        todo!()
-    }
-}
-
-impl Surface<2> for ProjectivePlane {
-    fn neighborhood(shape: [usize; 2], i: WfcNdIndex<2>) -> [[Option<WfcNdIndex<2>>; 2]; 2] {
-        todo!()
-    }
-}
-
-impl Surface<2> for KleinBottle {
-    fn neighborhood(shape: [usize; 2], i: WfcNdIndex<2>) -> [[Option<WfcNdIndex<2>>; 2]; 2] {
-        todo!()
-    }
-}
-
-pub trait WaveBase<Inner, Outer, S, const N: usize>
-where
-    // Inner: WaveTile<Inner, Outer, N>,
-    Inner: Clone + BoundaryHash<N> + Stitch<N, T = Inner> + Recover<Outer, Inner = Inner>,
-    DimN<N>: Dimension,
-    S: Surface<N>,
-{
-    fn init(tileset: &TileSet<Inner, Outer, N>, shape: DimN<N>) -> Self;
-}
-
-pub trait Wave<Inner, Outer, S, const N: usize>: WaveBase<Inner, Outer, S, N>
-where
-    // Inner: WaveTile<Inner, Outer, N>,
-    Inner: Clone + BoundaryHash<N> + Stitch<N, T = Inner> + Recover<Outer, Inner = Inner>,
-    DimN<N>: Dimension,
-    S: Surface<N>,
-{
-    fn collapse<R>(&mut self, rng: &mut R) -> Outer
-    where
-        R: RngCore + ?Sized;
-}
-
-pub trait ParWave<Inner, Outer, S, const N: usize>: WaveBase<Inner, Outer, S, N>
-where
-    Inner: Send
-        + Sync
-        + Clone
-        + BoundaryHash<N>
-        + Stitch<N, T = Inner>
-        + Recover<Outer, Inner = Inner>, // WaveTile<Inner, Outer, N>,
-    DimN<N>: Dimension,
-    S: Surface<N>,
-{
-    fn collapse_parallel<R>(&mut self, rng: &mut R) -> Outer
-    where
-        R: RngCore + ?Sized;
-}
+// each dimension that `ndarray` supports.
+impl_wavetileable!(2);
+impl_wavetileable!(3);
+impl_wavetileable!(4);
+impl_wavetileable!(5);
+impl_wavetileable!(6);

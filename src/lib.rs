@@ -4,6 +4,7 @@ mod util;
 
 pub mod data;
 pub mod impls;
+pub mod surface;
 pub mod traits;
 
 mod bitset;

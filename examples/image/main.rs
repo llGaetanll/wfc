@@ -9,8 +9,8 @@ use wfc::impls::image::ImageWave;
 use wfc::rand;
 use wfc::traits::Flips;
 use wfc::traits::Rotations;
-use wfc::traits::Wave;
-use wfc::traits::WaveBase;
+use wfc::wave::traits::Wave;
+use wfc::wave::traits::WaveBase;
 
 fn main() {
     let args: Vec<String> = env::args().collect();

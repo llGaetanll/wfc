@@ -10,7 +10,6 @@ use ndarray::Data;
 use ndarray::Dimension;
 
 use crate::types::DimN;
-use crate::Recover;
 
 pub type FlatIndex = usize;
 pub type NdIndex<const N: usize> = [usize; N];
@@ -85,15 +84,6 @@ where
     P: Pixel,
 {
     fn to_image(self) -> Option<ImageBuffer<P, Vec<<P as Pixel>::Subpixel>>>;
-}
-
-pub struct ArrayToImage;
-impl<P: Pixel> Recover<ImageBuffer<P, Vec<<P as Pixel>::Subpixel>>> for ArrayToImage {
-    type Inner = Array2<P>;
-
-    fn recover(&self) -> ImageBuffer<P, Vec<<P as Pixel>::Subpixel>> {
-        todo!()
-    }
 }
 
 impl<P> ArrayToImageExt<P> for Array2<P>

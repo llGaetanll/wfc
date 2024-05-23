@@ -6,30 +6,27 @@ use ndarray::Dimension;
 use ndarray::NdIndex;
 
 use crate::bitset::BitSet;
+use crate::surface::Surface;
 use crate::tile::Tile;
 use crate::traits::BoundaryHash;
-use crate::traits::Stitch;
-use crate::traits::Surface;
-use crate::traits::WaveBase;
-use crate::traits::WaveTile;
-// use crate::traits::WaveTile;
+use crate::traits::WaveTileable;
 use crate::types::DimN;
 use crate::wave::Wave;
-use crate::Recover;
+use crate::wave::WaveBase;
 
 pub struct TileSet<Inner, Outer, const N: usize>
 where
     Inner: BoundaryHash<N>,
     DimN<N>: Dimension,
 {
-    _outer: PhantomData<Outer>,
+    pub num_hashes: usize,
     pub data: Vec<Inner>,
 
     tiles: Vec<Tile<Inner, N>>,
     co_tiles: Vec<Tile<Inner, N>>,
 
     tile_size: usize,
-    num_hashes: usize,
+    _outer: PhantomData<Outer>,
 }
 
 impl<Inner, Outer, const N: usize> TileSet<Inner, Outer, N>
@@ -47,12 +44,15 @@ where
             num_hashes: 0,
         }
     }
+
+    pub fn get_tile_ptrs(&self) -> (Vec<*const Tile<Inner, N>>, Vec<*const Tile<Inner, N>>) {
+        (to_ptrs(&self.tiles), to_ptrs(&self.co_tiles))
+    }
 }
 
 impl<Inner, Outer, const N: usize> TileSet<Inner, Outer, N>
 where
-    // Inner: Clone + BoundaryHash<N> + Stitch<N, T = Inner> + Recover<Outer, Inner = Inner>,
-    Inner: WaveTile<Inner, Outer, N>,
+    Inner: WaveTileable<Inner, Outer, N>,
     DimN<N>: Dimension,
     [usize; N]: NdIndex<DimN<N>>,
 {
@@ -131,4 +131,8 @@ where
 
         Wave::init(self, shape)
     }
+}
+
+fn to_ptrs<T>(es: &[T]) -> Vec<*const T> {
+    es.iter().map(|e| e as *const T).collect()
 }
