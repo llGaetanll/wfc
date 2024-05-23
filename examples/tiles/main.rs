@@ -7,8 +7,10 @@ use image::Pixel;
 use ndarray::Ix2;
 
 use wfc::data::TileSet;
+use wfc::impls::image::ImageWave;
 use wfc::rand;
-use wfc::traits::{Flips, Recover, Rotations};
+use wfc::traits::WaveBase;
+use wfc::traits::{Flips, Rotations, Wave};
 
 type Img<P> = ImageBuffer<P, Vec<<P as Pixel>::Subpixel>>;
 
@@ -38,18 +40,16 @@ fn main() {
 
     let mut tileset = TileSet::from_images(images);
     tileset.with_rots().with_flips();
-    let mut wave = tileset.wave(Ix2(100, 100));
-
+    let mut wave = ImageWave::init(&tileset, Ix2(100, 100));
     let mut rng = rand::thread_rng();
 
     let t0 = SystemTime::now();
-    wave.collapse(&mut rng);
+    let image = wave.collapse(&mut rng);
     let t1 = SystemTime::now();
 
     println!("collapsed in {:?}", t1.duration_since(t0).unwrap());
 
     println!("scaling image");
-    let image: ImageBuffer<_, _> = wave.recover();
     let image = scale_image(image, 10); // resize the image
     image.save("wave.png").expect("failed to save image");
 }

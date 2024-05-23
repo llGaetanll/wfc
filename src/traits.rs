@@ -204,11 +204,9 @@ where
 {
     type T = Array<T, DimN<N>>;
 
-    /// Stitch an [`Array`] of [`Array`]s back into a single `Array`. Panics if any of the following
-    /// are true.
+    /// Stitch an [`Array`] of [`Array`]s back into a single `Array`. Requires an allocation.
     ///
-    /// Requires an allocation.
-    ///
+    /// Panics if any of the following are true:
     /// - `xs` is empty
     /// - The inner arrays are not all "N-square" (meaning every coordinate of their shape is the same)
     /// - The shapes of the inner `Array`s don't match
@@ -270,22 +268,22 @@ where
     }
 }
 
-/// Recover the `Input`. This is used in the wave to convert back to the original type (i.e. produce
-/// the full picture output.)
+/// Recover the `Outer` type. This is used in the wave to convert back to the original type (i.e.
+/// produce the full picture output.)
 ///
-/// Note that `Input` need be [`Clone`]. This is because wave function collapse may naturally use a
-/// tile more than once, and so may need to access the underlying data (`Input`) more than once as
+/// Note that `Inner` need be [`Clone`]. This is because wave function collapse may naturally use a
+/// tile more than once, and so may need to access the underlying data (`Inner`) more than once as
 /// well. This however has no impact on performance during collapse.
 
-// Note that `Outer` is a generic type parameter, but input is an associated type. This is a
+// Note that `Outer` is a generic type parameter, but `Inner` is an associated type. This is a
 // design deicision to make the API more ergonomic. Indeed all three of `Wave`, `WaveTile`, and
 // `Tile` impl `Recover` from `T` to `T`. However, it is often the case that `Wave`'s `Outer` type
-// may differ from its `Input` type. For instance, images are internally represented as 2D arrays
+// may differ from its `Inner` type. For instance, images are internally represented as 2D arrays
 // of pixels, but when we recover a `Wave` of this type, we don't want a 2D array of pixels as
 // output, we want an image! This need for multiple `Outer` type implementations of `Recover`
 // requires us to lift `Outer` from a mere associated type to a divine generic argument.
-pub trait Recover<Outer, const N: usize> {
-    type Inner: BoundaryHash<N> + Clone;
+pub trait Recover<Outer> {
+    type Inner: Clone;
 
     fn recover(&self) -> Outer;
 }
@@ -293,7 +291,7 @@ pub trait Recover<Outer, const N: usize> {
 /// A simple wrapper trait for types which can be used as tiles of a [`Wave`]. This trait is
 /// primarily to avoid repeating the underlying trait bounds all over the crate.
 pub trait WaveTile<Inner, Outer, const N: usize>:
-    Clone + BoundaryHash<N> + Stitch<N, T = Inner> + Recover<Outer, N, Inner = Inner>
+    Clone + BoundaryHash<N> + Stitch<N, T = Inner> + Recover<Outer, Inner = Inner>
 {
 }
 
@@ -350,7 +348,8 @@ impl Surface<2> for KleinBottle {
 
 pub trait WaveBase<Inner, Outer, S, const N: usize>
 where
-    Inner: WaveTile<Inner, Outer, N>,
+    // Inner: WaveTile<Inner, Outer, N>,
+    Inner: Clone + BoundaryHash<N> + Stitch<N, T = Inner> + Recover<Outer, Inner = Inner>,
     DimN<N>: Dimension,
     S: Surface<N>,
 {
@@ -359,22 +358,28 @@ where
 
 pub trait Wave<Inner, Outer, S, const N: usize>: WaveBase<Inner, Outer, S, N>
 where
-    Inner: WaveTile<Inner, Outer, N>,
+    // Inner: WaveTile<Inner, Outer, N>,
+    Inner: Clone + BoundaryHash<N> + Stitch<N, T = Inner> + Recover<Outer, Inner = Inner>,
     DimN<N>: Dimension,
     S: Surface<N>,
 {
-    fn collase<R>(&mut self, rng: &mut R) -> Outer
+    fn collapse<R>(&mut self, rng: &mut R) -> Outer
     where
         R: RngCore + ?Sized;
 }
 
 pub trait ParWave<Inner, Outer, S, const N: usize>: WaveBase<Inner, Outer, S, N>
 where
-    Inner: Send + Sync + WaveTile<Inner, Outer, N>,
+    Inner: Send
+        + Sync
+        + Clone
+        + BoundaryHash<N>
+        + Stitch<N, T = Inner>
+        + Recover<Outer, Inner = Inner>, // WaveTile<Inner, Outer, N>,
     DimN<N>: Dimension,
     S: Surface<N>,
 {
-    fn collase_parallel<R>(&mut self, rng: &mut R) -> Outer
+    fn collapse_parallel<R>(&mut self, rng: &mut R) -> Outer
     where
         R: RngCore + ?Sized;
 }

@@ -2,10 +2,7 @@ use crate::bitset::BitSet;
 use crate::traits::BoundaryHash;
 use crate::traits::Recover;
 
-pub struct Tile<T, const N: usize>
-where
-    T: BoundaryHash<N>,
-{
+pub struct Tile<T, const N: usize> {
     data: T,
 
     pub hashes: BitSet,
@@ -25,9 +22,9 @@ where
     }
 }
 
-impl<T, const N: usize> Recover<T, N> for Tile<T, N>
+impl<T, const N: usize> Recover<T> for Tile<T, N>
 where
-    T: BoundaryHash<N> + Clone,
+    T: Clone,
 {
     type Inner = T;
 

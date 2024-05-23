@@ -24,10 +24,7 @@ pub type NeighborWaveTiles<T, const N: usize> = [[Option<*mut WaveTile<T, N>>; 2
 pub type Iter = usize;
 pub type Index = usize;
 
-pub struct WaveTile<T, const N: usize>
-where
-    T: BoundaryHash<N>,
-{
+pub struct WaveTile<T, const N: usize> {
     pub parity: usize, // either 0 or 1
     pub hashes: BitSet,
     pub neighbors: NeighborWaveTiles<T, N>,
@@ -45,10 +42,7 @@ where
     masks: [[BitSet; 2]; N], // NOTE: depends on parity
 }
 
-impl<T, const N: usize> WaveTile<T, N>
-where
-    T: BoundaryHash<N>,
-{
+impl<T, const N: usize> WaveTile<T, N> {
     /// Create a new `WaveTile`
     pub fn new(
         tiles: Vec<*const Tile<T, N>>,
@@ -204,9 +198,9 @@ where
     }
 }
 
-impl<T, const N: usize> Recover<T, N> for WaveTile<T, N>
+impl<T, const N: usize> Recover<T> for WaveTile<T, N>
 where
-    T: BoundaryHash<N> + Clone + Merge,
+    T: Clone + Merge,
 {
     type Inner = T;
 

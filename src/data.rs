@@ -8,11 +8,14 @@ use ndarray::NdIndex;
 use crate::bitset::BitSet;
 use crate::tile::Tile;
 use crate::traits::BoundaryHash;
+use crate::traits::Stitch;
 use crate::traits::Surface;
 use crate::traits::WaveBase;
 use crate::traits::WaveTile;
+// use crate::traits::WaveTile;
 use crate::types::DimN;
 use crate::wave::Wave;
+use crate::Recover;
 
 pub struct TileSet<Inner, Outer, const N: usize>
 where
@@ -48,6 +51,7 @@ where
 
 impl<Inner, Outer, const N: usize> TileSet<Inner, Outer, N>
 where
+    // Inner: Clone + BoundaryHash<N> + Stitch<N, T = Inner> + Recover<Outer, Inner = Inner>,
     Inner: WaveTile<Inner, Outer, N>,
     DimN<N>: Dimension,
     [usize; N]: NdIndex<DimN<N>>,
