@@ -7,10 +7,8 @@ use image::Pixel;
 use ndarray::Ix2;
 
 use wfc::data::TileSet;
-use wfc::impls::image::ImageWave;
 use wfc::rand;
 use wfc::wave::traits::Wave;
-use wfc::wave::traits::WaveBase;
 use wfc::Flips;
 use wfc::Rotations;
 
@@ -42,7 +40,10 @@ fn main() {
 
     let mut tileset = TileSet::from_images(images);
     tileset.with_rots().with_flips();
-    let mut wave = ImageWave::init(&tileset, Ix2(100, 100));
+    let mut wave = tileset.wave(Ix2(70, 70));
+
+    // let mut wave = ImageWave::init(&tileset, Ix2(100, 100)); // FIXME: preventr being able to call this
+
     let mut rng = rand::thread_rng();
 
     let t0 = SystemTime::now();

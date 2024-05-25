@@ -1,11 +1,16 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::hash::DefaultHasher;
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::marker::PhantomData;
 
+use ndarray::Array2;
 use ndarray::Dimension;
 use ndarray::NdIndex;
 
 use crate::bitset::BitSet;
+use crate::ext::ndarray::ArrayTransformations;
 use crate::surface::Surface;
 use crate::tile::Tile;
 use crate::traits::BoundaryHash;
@@ -13,10 +18,13 @@ use crate::traits::WaveTileable;
 use crate::types::DimN;
 use crate::wave::Wave;
 use crate::wave::WaveBase;
+use crate::Flips;
+use crate::Rotations;
 
-pub struct TileSet<Inner, Outer, const N: usize>
+pub struct TileSet<Inner, Outer, S, const N: usize>
 where
     Inner: BoundaryHash<N>,
+    S: Surface<N>,
     DimN<N>: Dimension,
 {
     pub num_hashes: usize,
@@ -27,21 +35,26 @@ where
 
     tile_size: usize,
     _outer: PhantomData<Outer>,
+    _s: PhantomData<S>,
 }
 
-impl<Inner, Outer, const N: usize> TileSet<Inner, Outer, N>
+impl<Inner, Outer, S, const N: usize> TileSet<Inner, Outer, S, N>
 where
     Inner: BoundaryHash<N>,
+    S: Surface<N>,
     DimN<N>: Dimension,
 {
     pub fn new(data: Vec<Inner>, tile_size: usize) -> Self {
         TileSet {
-            _outer: PhantomData,
+            num_hashes: 0,
             data,
+
             tiles: vec![],
             co_tiles: vec![],
+
             tile_size,
-            num_hashes: 0,
+            _outer: PhantomData::<Outer>,
+            _s: PhantomData::<S>,
         }
     }
 
@@ -50,16 +63,14 @@ where
     }
 }
 
-impl<Inner, Outer, const N: usize> TileSet<Inner, Outer, N>
+impl<Inner, Outer, S, const N: usize> TileSet<Inner, Outer, S, N>
 where
     Inner: WaveTileable<Inner, Outer, N>,
+    S: Surface<N>,
     DimN<N>: Dimension,
     [usize; N]: NdIndex<DimN<N>>,
 {
-    pub fn wave<S>(&mut self, shape: DimN<N>) -> Wave<Inner, Outer, S, N>
-    where
-        S: Surface<N>,
-    {
+    pub fn wave(&mut self, shape: DimN<N>) -> Wave<Inner, Outer, S, N> {
         let mut hash_index: usize = 0;
 
         // key: hash, value: index into `tile_hashes`
@@ -130,6 +141,64 @@ where
         }
 
         Wave::init(self, shape)
+    }
+}
+
+impl<T: Hash + Clone, Outer, S> Rotations<2> for TileSet<Array2<T>, Outer, S, 2>
+where
+    S: Surface<2>,
+{
+    type T = Array2<T>;
+
+    fn with_rots(&mut self) -> &mut Self {
+        let mut tiles: HashMap<u64, Array2<T>> = HashMap::new();
+
+        for tile in &self.data {
+            for rotation in tile.rotations() {
+                // hash the tile
+                let mut hasher = DefaultHasher::new();
+                rotation.hash(&mut hasher);
+                let hash = hasher.finish();
+
+                // if the tile is not already present in the map, add it
+                if let Entry::Vacant(v) = tiles.entry(hash) {
+                    v.insert(rotation);
+                }
+            }
+        }
+
+        self.data = tiles.into_values().collect::<Vec<_>>();
+
+        self
+    }
+}
+
+impl<T: Hash + Clone, Outer, S> Flips<2> for TileSet<Array2<T>, Outer, S, 2>
+where
+    S: Surface<2>,
+{
+    type T = Array2<T>;
+
+    fn with_flips(&mut self) -> &mut Self {
+        let mut tiles: HashMap<u64, Array2<T>> = HashMap::new();
+
+        for tile in &self.data {
+            for rotation in tile.flips() {
+                // hash the tile
+                let mut hasher = DefaultHasher::new();
+                rotation.hash(&mut hasher);
+                let hash = hasher.finish();
+
+                // if the tile is not already present in the map, add it
+                if let Entry::Vacant(v) = tiles.entry(hash) {
+                    v.insert(rotation);
+                }
+            }
+        }
+
+        self.data = tiles.into_values().collect::<Vec<_>>();
+
+        self
     }
 }
 

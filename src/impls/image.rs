@@ -1,5 +1,4 @@
 use std::collections::hash_map::DefaultHasher;
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::hash::Hasher;
@@ -16,16 +15,14 @@ use ndarray::Array2;
 use crate::data::TileSet;
 use crate::ext::image::ImageToArrayExt;
 use crate::ext::ndarray::ArrayToImageExt;
-use crate::ext::ndarray::ArrayTransformations;
+use crate::surface::Flat;
 use crate::surface::FlatWave;
-use crate::traits::Flips;
 use crate::traits::Merge;
-use crate::traits::Rotations;
 use crate::Recover;
 
 pub type Image<P> = ImageBuffer<P, Vec<<P as Pixel>::Subpixel>>;
 pub type ImageWave<P> = FlatWave<Array2<P>, Image<P>, 2>;
-pub type ImageTileSet<P> = TileSet<Array2<P>, Image<P>, 2>;
+pub type ImageTileSet<P> = TileSet<Array2<P>, Image<P>, Flat, 2>;
 
 pub struct ImageParams<I: GenericImage> {
     pub image: I,
@@ -104,58 +101,6 @@ where
             .collect();
 
         TileSet::new(arrays, tile_size)
-    }
-}
-
-impl<T: Hash + Clone, Outer> Rotations<2> for TileSet<Array2<T>, Outer, 2> {
-    type T = Array2<T>;
-
-    fn with_rots(&mut self) -> &mut Self {
-        let mut tiles: HashMap<u64, Array2<T>> = HashMap::new();
-
-        for tile in &self.data {
-            for rotation in tile.rotations() {
-                // hash the tile
-                let mut hasher = DefaultHasher::new();
-                rotation.hash(&mut hasher);
-                let hash = hasher.finish();
-
-                // if the tile is not already present in the map, add it
-                if let Entry::Vacant(v) = tiles.entry(hash) {
-                    v.insert(rotation);
-                }
-            }
-        }
-
-        self.data = tiles.into_values().collect::<Vec<_>>();
-
-        self
-    }
-}
-
-impl<T: Hash + Clone, Outer> Flips<2> for TileSet<Array2<T>, Outer, 2> {
-    type T = Array2<T>;
-
-    fn with_flips(&mut self) -> &mut Self {
-        let mut tiles: HashMap<u64, Array2<T>> = HashMap::new();
-
-        for tile in &self.data {
-            for rotation in tile.flips() {
-                // hash the tile
-                let mut hasher = DefaultHasher::new();
-                rotation.hash(&mut hasher);
-                let hash = hasher.finish();
-
-                // if the tile is not already present in the map, add it
-                if let Entry::Vacant(v) = tiles.entry(hash) {
-                    v.insert(rotation);
-                }
-            }
-        }
-
-        self.data = tiles.into_values().collect::<Vec<_>>();
-
-        self
     }
 }
 
