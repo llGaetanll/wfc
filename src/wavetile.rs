@@ -1,5 +1,9 @@
 use std::array::from_fn;
 use std::fmt::Debug;
+use std::hash::Hash;
+use std::hash::Hasher;
+use std::ops::Deref;
+use std::ops::DerefMut;
 
 use rand::Rng;
 use rand::RngCore;
@@ -19,7 +23,7 @@ pub enum WaveTileError {
     OutOfTiles,
 }
 
-pub type NeighborWaveTiles<T, const N: usize> = [[Option<*mut WaveTile<T, N>>; 2]; N];
+pub type NeighborWaveTiles<T, const N: usize> = [[Option<WaveTilePtr<T, N>>; 2]; N];
 pub type Iter = usize;
 pub type Index = usize;
 
@@ -221,3 +225,62 @@ where
         T::merge(&ts)
     }
 }
+
+// SAFETY: WaveTile `impl`s `!Send` and `!Sync` because it contains raw pointers. However because
+// these pointers are never invalidated at collapse-time, they are as valid as references would be.
+unsafe impl<T: Send, const N: usize> Send for WaveTile<T, N> {}
+unsafe impl<T: Sync, const N: usize> Sync for WaveTile<T, N> {}
+
+#[repr(transparent)]
+pub struct WaveTilePtr<T, const N: usize>(*mut WaveTile<T, N>);
+
+impl<T, const N: usize> WaveTilePtr<T, N> {
+    pub fn from(ptr: *mut WaveTile<T, N>) -> Self {
+        Self(ptr)
+    }
+}
+
+impl<T, const N: usize> Deref for WaveTilePtr<T, N> {
+    type Target = WaveTile<T, N>;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*self.0 }
+    }
+}
+
+impl<T, const N: usize> DerefMut for WaveTilePtr<T, N> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { &mut *self.0 }
+    }
+}
+
+impl<T, const N: usize> Debug for WaveTilePtr<T, N> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl<T, const N: usize> Clone for WaveTilePtr<T, N> {
+    fn clone(&self) -> Self {
+        WaveTilePtr::from(self.0)
+    }
+}
+
+impl<T, const N: usize> Copy for WaveTilePtr<T, N> {}
+
+impl<T, const N: usize> Hash for WaveTilePtr<T, N> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state)
+    }
+}
+
+impl<T, const N: usize> PartialEq for WaveTilePtr<T, N> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.eq(&other.0)
+    }
+}
+
+impl<T, const N: usize> Eq for WaveTilePtr<T, N> {}
+
+unsafe impl<T: Sync, const N: usize> Send for WaveTilePtr<T, N> {}
+unsafe impl<T: Sync, const N: usize> Sync for WaveTilePtr<T, N> {}
