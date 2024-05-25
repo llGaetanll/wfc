@@ -10,14 +10,12 @@ pub mod traits;
 mod bitset;
 
 mod tile;
-pub mod wave;
 mod wavetile;
+
+pub mod wave;
 
 // re-export rand so downstream crates don't have to think as hard about matching `wfc`'s version
 pub use ndarray;
 pub use rand;
 
 pub use data::TileSet;
-pub use traits::Flips;
-pub use traits::Recover;
-pub use traits::Rotations;

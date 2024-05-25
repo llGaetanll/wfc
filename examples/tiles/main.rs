@@ -7,10 +7,12 @@ use image::Pixel;
 use ndarray::Ix2;
 
 use wfc::data::TileSet;
+use wfc::impls::image::ImageTileSet;
 use wfc::rand;
+use wfc::surface::Flat;
+use wfc::traits::Flips;
+use wfc::traits::Rotations;
 use wfc::wave::traits::Wave;
-use wfc::Flips;
-use wfc::Rotations;
 
 type Img<P> = ImageBuffer<P, Vec<<P as Pixel>::Subpixel>>;
 
@@ -38,7 +40,8 @@ fn main() {
         })
         .collect();
 
-    let mut tileset = TileSet::from_images(images);
+    let mut tileset: ImageTileSet<_, Flat> = TileSet::from_images(images);
+
     tileset.with_rots().with_flips();
     let mut wave = tileset.wave(Ix2(70, 70));
 

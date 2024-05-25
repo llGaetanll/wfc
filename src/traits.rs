@@ -285,7 +285,7 @@ pub trait Recover<Outer> {
     fn recover(&self) -> Outer;
 }
 
-/// A simple wrapper trait for types which can be used as tiles of a [`Wave`]. This trait is
+/// A simple wrapper trait for types which can be used as tiles of a `Wave`. This trait is
 /// primarily to avoid repeating the underlying trait bounds all over the crate.
 pub trait WaveTileable<Inner, Outer, const N: usize>:
     Clone + BoundaryHash<N> + Stitch<N, T = Inner> + Recover<Outer, Inner = Inner>

@@ -6,6 +6,7 @@ use ndarray::Ix2;
 
 use wfc::impls::image::ImageParams;
 use wfc::rand;
+use wfc::surface::Flat;
 use wfc::traits::Flips;
 use wfc::traits::Rotations;
 use wfc::wave::traits::Wave;
@@ -24,12 +25,12 @@ fn main() {
 
     let image = image::open(img_path).expect("image not found");
 
-    let params = ImageParams { image, win_size };
+    let params = ImageParams::<_, Flat>::new_flat(image, win_size);
     let mut tileset = params.tileset();
     tileset.with_rots().with_flips();
 
     // let mut wave = ImageWave::init(&tileset, Ix2(70, 70)); // FIXME: this doesnt work!!
-    let mut wave = tileset.wave(Ix2(10, 10));
+    let mut wave = tileset.wave(Ix2(70, 70));
 
     let mut rng = rand::thread_rng();
 

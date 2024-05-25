@@ -42,6 +42,7 @@ where
     WfcNdIndex<N>: NdIndex<DimN<N>>,
     S: Surface<N>,
 {
+    // TODO: remove ndarray from public facing API
     fn init(tileset: &TileSet<Inner, Outer, S, N>, shape: DimN<N>) -> Self {
         let (tiles, co_tiles) = tileset.get_tile_ptrs();
         let num_hashes = tileset.num_hashes;
@@ -109,13 +110,13 @@ where
                             let wt = unsafe { &*wt };
                             &wt.hashes as &BitSlice
                         })
-                        .unwrap_or({ &wave.ones }) as *const BitSlice,
+                        .unwrap_or(&wave.ones) as *const BitSlice,
                         r.map(|wt| {
                             // SAFETY: WaveTile array size is fixed, so it is not moved.
                             let wt = unsafe { &*wt };
                             &wt.hashes as &BitSlice
                         })
-                        .unwrap_or({ &wave.ones }) as *const BitSlice,
+                        .unwrap_or(&wave.ones) as *const BitSlice,
                     ]
                 })
             };
@@ -182,11 +183,11 @@ pub mod traits {
     use crate::data::TileSet;
     use crate::ext::ndarray::NdIndex as WfcNdIndex;
     use crate::surface::Surface;
+    use crate::traits::Recover;
     use crate::traits::WaveTileable;
     use crate::types::DimN;
     use crate::util::manhattan_dist;
     use crate::wavetile::{WaveTile, WaveTileError};
-    use crate::Recover;
 
     pub trait WaveBase<Inner, Outer, S, const N: usize>
     where

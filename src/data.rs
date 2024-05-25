@@ -14,12 +14,12 @@ use crate::ext::ndarray::ArrayTransformations;
 use crate::surface::Surface;
 use crate::tile::Tile;
 use crate::traits::BoundaryHash;
+use crate::traits::Flips;
+use crate::traits::Rotations;
 use crate::traits::WaveTileable;
 use crate::types::DimN;
 use crate::wave::Wave;
 use crate::wave::WaveBase;
-use crate::Flips;
-use crate::Rotations;
 
 pub struct TileSet<Inner, Outer, S, const N: usize>
 where

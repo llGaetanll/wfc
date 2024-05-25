@@ -2,6 +2,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::marker::PhantomData;
 
 use image::GenericImage;
 use image::ImageBuffer;
@@ -17,26 +18,37 @@ use crate::ext::image::ImageToArrayExt;
 use crate::ext::ndarray::ArrayToImageExt;
 use crate::surface::Flat;
 use crate::surface::FlatWave;
+use crate::surface::Surface;
 use crate::traits::Merge;
-use crate::Recover;
+use crate::traits::Recover;
 
 pub type Image<P> = ImageBuffer<P, Vec<<P as Pixel>::Subpixel>>;
 pub type ImageWave<P> = FlatWave<Array2<P>, Image<P>, 2>;
-pub type ImageTileSet<P> = TileSet<Array2<P>, Image<P>, Flat, 2>;
+pub type ImageTileSet<P, S> = TileSet<Array2<P>, Image<P>, S, 2>;
 
-pub struct ImageParams<I: GenericImage> {
+pub struct ImageParams<I: GenericImage, S: Surface<2>> {
     pub image: I,
     pub win_size: usize,
+    _s: PhantomData<S>,
 }
 
-impl<Sp, P, I> ImageParams<I>
+impl<Sp, P, I, S> ImageParams<I, S>
 where
     Sp: Hash,
     P: Pixel<Subpixel = Sp> + Hash + Merge,
     I: GenericImage<Pixel = P>,
+    S: Surface<2>,
 {
+    pub fn new_flat(image: I, win_size: usize) -> ImageParams<I, Flat> {
+        ImageParams {
+            image,
+            win_size,
+            _s: PhantomData::<Flat>,
+        }
+    }
+
     /// Construct a `TileSet` from an `image` and `win_size`.
-    pub fn tileset(&self) -> ImageTileSet<P> {
+    pub fn tileset(&self) -> ImageTileSet<P, S> {
         let image = &self.image;
 
         let pixels: Array2<P> = image.to_array().unwrap();
@@ -63,10 +75,32 @@ where
     }
 }
 
-impl<Sp, P> ImageTileSet<P>
+#[cfg(feature = "wrapping")]
+impl<Sp, P, I, S> ImageParams<I, S>
 where
     Sp: Hash,
     P: Pixel<Subpixel = Sp> + Hash + Merge,
+    I: GenericImage<Pixel = P>,
+    S: Surface<2>,
+{
+    pub fn new_projective_plane(image: I, win_size: usize) -> ImageParams<I, Flat> {
+        todo!()
+    }
+
+    pub fn new_torus(image: I, win_size: usize) -> ImageParams<I, Flat> {
+        todo!()
+    }
+
+    pub fn new_klein_bottle(image: I, win_size: usize) -> ImageParams<I, Flat> {
+        todo!()
+    }
+}
+
+impl<Sp, P, S> ImageTileSet<P, S>
+where
+    Sp: Hash,
+    P: Pixel<Subpixel = Sp> + Hash + Merge,
+    S: Surface<2>,
 {
     /// Constructs a `TileSet` from a list of images.
     ///
@@ -74,7 +108,7 @@ where
     /// - The list of images is empty
     /// - The images are non-square
     /// - The images are not all the same size
-    pub fn from_images<I>(tiles: Vec<I>) -> ImageTileSet<P>
+    pub fn from_images<I>(tiles: Vec<I>) -> ImageTileSet<P, S>
     where
         I: GenericImage<Pixel = P>,
     {
