@@ -196,7 +196,7 @@ where
 
 unsafe impl<Inner, Outer, S, const N: usize> Sync for Wave<Inner, Outer, S, N>
 where
-    Inner: Send + WaveTileable<Inner, Outer, N>,
+    Inner: Sync + WaveTileable<Inner, Outer, N>,
     DimN<N>: Dimension,
     S: Surface<N>,
 {
