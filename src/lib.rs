@@ -13,6 +13,7 @@ mod tile;
 mod wavetile;
 
 pub mod wave;
+pub mod prelude;
 
 // re-export rand so downstream crates don't have to think as hard about matching `wfc`'s version
 pub use ndarray;

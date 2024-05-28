@@ -14,8 +14,6 @@ use crate::wavetile::{WaveTile, WaveTileError};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-use self::private::ParFns;
-
 pub trait WaveBase<Inner, Outer, S, const N: usize>
 where
     Inner: WaveTileable<Inner, Outer, N>,
@@ -106,7 +104,7 @@ where
             let next = wt_min.collapse(rng, iter);
             self.work[0].extend(next.into_iter().flat_map(|axis| axis.into_iter()).flatten()); // all distance 1
             if <Self as private::Fns<N>>::propagate(self, iter, min_idx).is_err() {
-                self.rollback_parallel(iter);
+                <Self as private::ParFns<N>>::rollback_parallel(self, iter);
             }
         }
 

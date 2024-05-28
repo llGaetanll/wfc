@@ -4,14 +4,7 @@ use std::time::SystemTime;
 
 use ndarray::Ix2;
 
-use wfc::impls::image::ImageParams;
-use wfc::impls::image::ImageWave;
-use wfc::rand;
-use wfc::surface::Flat;
-use wfc::traits::Flips;
-use wfc::traits::Rotations;
-use wfc::wave::WaveBase;
-use wfc::wave::traits::Wave;
+use wfc::prelude::*;
 use wfc::wave::traits::ParWave;
 
 fn main() {

@@ -6,15 +6,7 @@ use image::ImageBuffer;
 use image::Pixel;
 use ndarray::Ix2;
 
-use wfc::data::TileSet;
-use wfc::impls::image::ImageTileSet;
-use wfc::impls::image::ImageWave;
-use wfc::rand;
-use wfc::surface::Flat;
-use wfc::traits::Flips;
-use wfc::traits::Rotations;
-use wfc::wave::WaveBase;
-use wfc::wave::traits::Wave;
+use wfc::prelude::*;
 
 type Img<P> = ImageBuffer<P, Vec<<P as Pixel>::Subpixel>>;
 
