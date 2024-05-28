@@ -11,6 +11,11 @@ use crate::types::DimN;
 use crate::util::manhattan_dist;
 use crate::wavetile::{WaveTile, WaveTileError};
 
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
+
+use self::private::ParFns;
+
 pub trait WaveBase<Inner, Outer, S, const N: usize>
 where
     Inner: WaveTileable<Inner, Outer, N>,
@@ -80,6 +85,7 @@ where
 impl<Inner, Outer, S, const N: usize> ParWave<Inner, Outer, S, N>
     for super::Wave<Inner, Outer, S, N>
 where
+    super::Wave<Inner, Outer, S, N>: Recover<Outer, Inner = Inner>,
     Inner: Send + Sync + WaveTileable<Inner, Outer, N>,
     DimN<N>: Dimension,
     WfcNdIndex<N>: NdIndex<DimN<N>>,
@@ -89,7 +95,22 @@ where
     where
         R: RngCore + ?Sized,
     {
-        todo!()
+        for iter in 0.. {
+            let [(_min, min_idx), (max, _max_idx)] = <Self as private::Fns<N>>::get_entropy(self);
+            if max < 2 {
+                break;
+            }
+
+            let wt_min = &mut self.wave[min_idx];
+
+            let next = wt_min.collapse(rng, iter);
+            self.work[0].extend(next.into_iter().flat_map(|axis| axis.into_iter()).flatten()); // all distance 1
+            if <Self as private::Fns<N>>::propagate(self, iter, min_idx).is_err() {
+                self.rollback_parallel(iter);
+            }
+        }
+
+        <Self as Recover<Outer>>::recover(self)
     }
 }
 
@@ -189,7 +210,7 @@ where
 #[cfg(feature = "parallel")]
 impl<Inner, Outer, S, const N: usize> private::ParFns<N> for super::Wave<Inner, Outer, S, N>
 where
-    Inner: WaveTileable<Inner, Outer, N>,
+    Inner: Send + Sync + WaveTileable<Inner, Outer, N>,
     DimN<N>: Dimension,
     S: Surface<N>,
 {
@@ -203,7 +224,7 @@ where
             let next_work = self.work[d]
                 .par_drain()
                 .flat_map(|mut wt| {
-                    wt.update2(iter)
+                    wt.update(iter)
                         .expect("oops")
                         .into_par_iter()
                         .flat_map(|axis| axis.into_par_iter())

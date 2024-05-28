@@ -12,6 +12,7 @@ use wfc::traits::Flips;
 use wfc::traits::Rotations;
 use wfc::wave::WaveBase;
 use wfc::wave::traits::Wave;
+use wfc::wave::traits::ParWave;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -31,12 +32,12 @@ fn main() {
     let mut tileset = params.tileset();
     tileset.with_rots().with_flips();
 
-    let mut wave = ImageWave::init(&mut tileset, Ix2(70, 70));
+    let mut wave = ImageWave::init(&mut tileset, Ix2(40, 40));
 
     let mut rng = rand::thread_rng();
 
     let t0 = SystemTime::now();
-    let image = wave.collapse(&mut rng);
+    let image = wave.collapse_parallel(&mut rng);
     let t1 = SystemTime::now();
 
     image.save("wave.png").expect("failed to save image");

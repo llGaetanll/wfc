@@ -282,5 +282,5 @@ impl<T, const N: usize> PartialEq for WaveTilePtr<T, N> {
 
 impl<T, const N: usize> Eq for WaveTilePtr<T, N> {}
 
-unsafe impl<T: Sync, const N: usize> Send for WaveTilePtr<T, N> {}
+unsafe impl<T: Send, const N: usize> Send for WaveTilePtr<T, N> {}
 unsafe impl<T: Sync, const N: usize> Sync for WaveTilePtr<T, N> {}
