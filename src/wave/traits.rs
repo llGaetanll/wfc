@@ -17,7 +17,7 @@ where
     DimN<N>: Dimension,
     S: Surface<N>,
 {
-    fn init(tileset: &TileSet<Inner, Outer, S, N>, shape: DimN<N>) -> Self;
+    fn init(tileset: &mut TileSet<Inner, Outer, S, N>, shape: DimN<N>) -> Self;
 }
 
 pub trait Wave<Inner, Outer, S, const N: usize>:

@@ -71,6 +71,14 @@ where
     [usize; N]: NdIndex<DimN<N>>,
 {
     pub fn wave(&mut self, shape: DimN<N>) -> Wave<Inner, Outer, S, N> {
+        Wave::init(self, shape)
+    }
+
+    pub fn compute_tiles(&mut self) {
+        if !self.tiles.is_empty() {
+            return
+        }
+
         let mut hash_index: usize = 0;
 
         // key: hash, value: index into `tile_hashes`
@@ -139,8 +147,6 @@ where
             self.co_tiles
                 .push(Tile::new(data.clone(), co_bitset, self.tile_size));
         }
-
-        Wave::init(self, shape)
     }
 }
 

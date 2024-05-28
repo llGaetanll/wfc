@@ -5,10 +5,12 @@ use std::time::SystemTime;
 use ndarray::Ix2;
 
 use wfc::impls::image::ImageParams;
+use wfc::impls::image::ImageWave;
 use wfc::rand;
 use wfc::surface::Flat;
 use wfc::traits::Flips;
 use wfc::traits::Rotations;
+use wfc::wave::WaveBase;
 use wfc::wave::traits::Wave;
 
 fn main() {
@@ -29,8 +31,7 @@ fn main() {
     let mut tileset = params.tileset();
     tileset.with_rots().with_flips();
 
-    // let mut wave = ImageWave::init(&tileset, Ix2(70, 70)); // FIXME: this doesnt work!!
-    let mut wave = tileset.wave(Ix2(70, 70));
+    let mut wave = ImageWave::init(&mut tileset, Ix2(70, 70));
 
     let mut rng = rand::thread_rng();
 

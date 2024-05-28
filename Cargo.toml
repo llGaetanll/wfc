@@ -13,7 +13,8 @@ image = { version = "0.25.0", optional = true }
 rayon = { version = "1.10.0", optional = true }
 
 [features]
-default = ["image"]
+default = ["image", "wrapping"]
+wrapping = []
 parallel = ["dep:rayon"]
 image = ["dep:image"]
 sdl = ["dep:sdl2"]

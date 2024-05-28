@@ -262,7 +262,7 @@ impl<T, const N: usize> Debug for WaveTilePtr<T, N> {
 
 impl<T, const N: usize> Clone for WaveTilePtr<T, N> {
     fn clone(&self) -> Self {
-        WaveTilePtr::from(self.0)
+        *self
     }
 }
 

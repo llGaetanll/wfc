@@ -16,6 +16,9 @@ use ndarray::Array2;
 use crate::data::TileSet;
 use crate::ext::image::ImageToArrayExt;
 use crate::ext::ndarray::ArrayToImageExt;
+use crate::surface::wrapping::KleinBottle;
+use crate::surface::wrapping::ProjectivePlane;
+use crate::surface::wrapping::Torus;
 use crate::surface::Flat;
 use crate::surface::FlatWave;
 use crate::surface::Surface;
@@ -83,16 +86,28 @@ where
     I: GenericImage<Pixel = P>,
     S: Surface<2>,
 {
-    pub fn new_projective_plane(image: I, win_size: usize) -> ImageParams<I, Flat> {
-        todo!()
+    pub fn new_projective_plane(image: I, win_size: usize) -> ImageParams<I, ProjectivePlane> {
+        ImageParams {
+            image,
+            win_size,
+            _s: PhantomData::<ProjectivePlane>,
+        }
     }
 
-    pub fn new_torus(image: I, win_size: usize) -> ImageParams<I, Flat> {
-        todo!()
+    pub fn new_torus(image: I, win_size: usize) -> ImageParams<I, Torus> {
+        ImageParams {
+            image,
+            win_size,
+            _s: PhantomData::<Torus>,
+        }
     }
 
-    pub fn new_klein_bottle(image: I, win_size: usize) -> ImageParams<I, Flat> {
-        todo!()
+    pub fn new_klein_bottle(image: I, win_size: usize) -> ImageParams<I, KleinBottle> {
+        ImageParams {
+            image,
+            win_size,
+            _s: PhantomData::<KleinBottle>,
+        }
     }
 }
 

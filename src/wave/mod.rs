@@ -25,6 +25,25 @@ use crate::TileSet;
 pub use traits::WaveBase;
 pub mod traits;
 
+/// `Wave` is the main type of the API that users interact with. It comes with some seemingly
+/// complex, but important, generic type parameters that are worth explaining.
+///
+/// - `Inner` is the type that the wave uses internally, for any computations that it might need.
+/// - `Outer` is the type that users put in, and want out.
+///
+///   It's important to understand that these types *may* have to be different, depending on our
+///   purposes. To better understand it, let us consider the example of collapsing a wave
+///   containing image tiles. We use the `image` crate to load and save images, but internally, an
+///   image is just a 2D array of pixels. This second representation is more fit to perform
+///   boundary hash computations than an `Image` type would be. For this reason, it is more
+///   efficient for the `wave` to use it as its type under the hood. 
+///
+/// - `S` represents the type of surface that the `Wave` sits on. Most often, this will just be a
+///   `Flat` surface, but on occasion, the user may want to be able to collapse a way on a wrapping
+///   type of surface, such as a Torus or a Klein Bottle.
+///
+/// - `N` represents the dimension of the `Wave`. For instance, image `Wave`s have `N = 2`, since
+///   images are `2` dimensional.
 pub struct Wave<Inner, Outer, S, const N: usize>
 where
     Inner: WaveTileable<Inner, Outer, N>,
@@ -47,7 +66,9 @@ where
     S: Surface<N>,
 {
     // TODO: remove ndarray from public facing API
-    fn init(tileset: &TileSet<Inner, Outer, S, N>, shape: DimN<N>) -> Self {
+    fn init(tileset: &mut TileSet<Inner, Outer, S, N>, shape: DimN<N>) -> Self {
+        tileset.compute_tiles(); // in case not called yet
+
         let (tiles, co_tiles) = tileset.get_tile_ptrs();
         let num_hashes = tileset.num_hashes;
         let dummy = BitSet::new();
@@ -90,7 +111,7 @@ where
 
         let get_wavetile_neighbors = |index: usize| -> [[Option<*mut WaveTile<Inner, N>>; 2]; N] {
             let index = wave.wave.get_nd_index(index);
-            let neighbor_indices = wave.wave.get_index_neighbors(index);
+            let neighbor_indices = S::neighborhood(wave.wave.shape().try_into().unwrap(), index);
 
             neighbor_indices
                 .iter()

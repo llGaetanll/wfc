@@ -52,19 +52,53 @@ pub mod wrapping {
 
     impl Surface<2> for Torus {
         fn neighborhood(shape: [usize; 2], i: WfcNdIndex<2>) -> [[Option<WfcNdIndex<2>>; 2]; 2] {
-            todo!()
+            from_wrap_info([[false, false], [false, false]], shape, i)
         }
     }
 
     impl Surface<2> for ProjectivePlane {
         fn neighborhood(shape: [usize; 2], i: WfcNdIndex<2>) -> [[Option<WfcNdIndex<2>>; 2]; 2] {
-            todo!()
+            from_wrap_info([[false, true], [true, false]], shape, i)
         }
     }
 
     impl Surface<2> for KleinBottle {
         fn neighborhood(shape: [usize; 2], i: WfcNdIndex<2>) -> [[Option<WfcNdIndex<2>>; 2]; 2] {
-            todo!()
+            from_wrap_info([[false, true], [false, false]], shape, i)
         }
+    }
+
+    #[inline]
+    fn from_wrap_info(
+        info: [[bool; 2]; 2],
+        shape: [usize; 2],
+        i: WfcNdIndex<2>,
+    ) -> [[Option<WfcNdIndex<2>>; 2]; 2] {
+        info.iter()
+            .enumerate()
+            .map(|(axis, &[l, r])| [wrap(axis, shape, i, -1, l), wrap(axis, shape, i, 1, r)])
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap()
+    }
+
+    #[inline]
+    fn wrap<const N: usize>(
+        axis: usize,
+        shape: [usize; N],
+        i: WfcNdIndex<N>,
+        d: isize,
+        rev: bool,
+    ) -> Option<WfcNdIndex<N>> {
+        let mut index = i;
+        let n = shape[axis];
+
+        index[axis] = (index[axis] as isize + d + n as isize) as usize % n;
+
+        if rev && !(0isize..n as isize).contains(&(index[axis] as isize + d)) {
+            index[axis] = n - index[axis];
+        }
+
+        Some(index)
     }
 }
