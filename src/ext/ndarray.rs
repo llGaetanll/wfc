@@ -1,5 +1,3 @@
-use std::array::from_fn;
-
 use image::ImageBuffer;
 use image::Pixel;
 
@@ -13,12 +11,10 @@ use crate::types::DimN;
 
 pub type FlatIndex = usize;
 pub type NdIndex<const N: usize> = [usize; N];
-pub type NeighborIndices<const N: usize> = [[Option<NdIndex<N>>; 2]; N];
 
 pub trait WaveArrayExt<const N: usize> {
     fn max_manhattan_dist(&self) -> usize;
     fn get_nd_index(&self, flat_index: FlatIndex) -> NdIndex<N>;
-    fn get_index_neighbors(&self, index: NdIndex<N>) -> NeighborIndices<N>;
 }
 
 impl<S, const N: usize> WaveArrayExt<N> for ArrayBase<S, DimN<N>>
@@ -50,31 +46,6 @@ where
         }
 
         nd_index
-    }
-
-    /// For a given NdIndex, returns the list of all the neighbors of that index
-    fn get_index_neighbors(&self, index: NdIndex<N>) -> NeighborIndices<N> {
-        let shape = self.shape();
-
-        from_fn(|axis| {
-            let left = if index[axis] == 0 {
-                None
-            } else {
-                let mut left = index;
-                left[axis] -= 1;
-                Some(left)
-            };
-
-            let right = if index[axis] == shape[axis] - 1 {
-                None
-            } else {
-                let mut right = index;
-                right[axis] += 1;
-                Some(right)
-            };
-
-            [left, right]
-        })
     }
 }
 
