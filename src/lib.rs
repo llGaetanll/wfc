@@ -19,4 +19,10 @@ pub mod prelude;
 pub use ndarray;
 pub use rand;
 
+#[cfg(feature = "sdl")]
+pub use sdl2;
+
+#[cfg(feature = "image")]
+pub use image;
+
 pub use data::TileSet;

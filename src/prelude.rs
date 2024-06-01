@@ -33,3 +33,9 @@ pub use wrapping::*;
 
 pub use rand;
 pub use ndarray;
+
+#[cfg(feature = "sdl")]
+pub use sdl2;
+
+#[cfg(feature = "image")]
+pub use image;

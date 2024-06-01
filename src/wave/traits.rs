@@ -6,7 +6,7 @@ use rand::RngCore;
 use crate::data::TileSet;
 use crate::ext::ndarray::NdIndex as WfcNdIndex;
 use crate::surface::Surface;
-use crate::traits::{Recover, WaveTileable};
+use crate::traits::{Merge, Recover, WaveTileable};
 use crate::types::DimN;
 use crate::util::manhattan_dist;
 use crate::wavetile::{WaveTile, WaveTileError};
@@ -21,6 +21,7 @@ where
     S: Surface<N>,
 {
     fn init(tileset: &mut TileSet<Inner, Outer, S, N>, shape: DimN<N>) -> Self;
+    fn attach(&mut self, f: Box<dyn FnMut(Outer)>) -> &mut Self;
 }
 
 pub trait Wave<Inner, Outer, S, const N: usize>:
@@ -51,7 +52,7 @@ where
 impl<Inner, Outer, S, const N: usize> Wave<Inner, Outer, S, N> for super::Wave<Inner, Outer, S, N>
 where
     super::Wave<Inner, Outer, S, N>: Recover<Outer, Inner = Inner>,
-    Inner: WaveTileable<Inner, Outer, N>,
+    Inner: Merge + WaveTileable<Inner, Outer, N>,
     DimN<N>: Dimension,
     WfcNdIndex<N>: NdIndex<DimN<N>>,
     S: Surface<N>,
@@ -69,7 +70,18 @@ where
             let wt_min = &mut self.wave[min_idx];
 
             let next = wt_min.collapse(rng, iter);
+
+            // we write the code this way because `recover` is potentially an expensive operation,
+            // and we don't want to do it unless we know `f` is defined.
+            if self.f.is_some() {
+                let res = <Self as Recover<Outer>>::recover(self);
+                // SAFETY: the `is_some` check
+                let f = unsafe { self.f.as_mut().unwrap_unchecked() };
+                f(res);
+            }
+
             self.work[0].extend(next.into_iter().flat_map(|axis| axis.into_iter()).flatten()); // all distance 1
+
             if <Self as private::Fns<N>>::propagate(self, iter, min_idx).is_err() {
                 <Self as private::Fns<N>>::rollback(self, iter);
             }
@@ -84,7 +96,7 @@ impl<Inner, Outer, S, const N: usize> ParWave<Inner, Outer, S, N>
     for super::Wave<Inner, Outer, S, N>
 where
     super::Wave<Inner, Outer, S, N>: Recover<Outer, Inner = Inner>,
-    Inner: Send + Sync + WaveTileable<Inner, Outer, N>,
+    Inner: Merge + Send + Sync + WaveTileable<Inner, Outer, N>,
     DimN<N>: Dimension,
     WfcNdIndex<N>: NdIndex<DimN<N>>,
     S: Surface<N>,
@@ -134,7 +146,7 @@ mod private {
 
 impl<Inner, Outer, S, const N: usize> private::Fns<N> for super::Wave<Inner, Outer, S, N>
 where
-    Inner: WaveTileable<Inner, Outer, N>,
+    Inner: Merge + WaveTileable<Inner, Outer, N>,
     DimN<N>: Dimension,
     S: Surface<N>,
 {
@@ -143,9 +155,9 @@ where
     fn propagate(&mut self, iter: usize, index: WfcNdIndex<N>) -> Result<(), WaveTileError> {
         for d in 0.. {
             let mut next_work = HashSet::new();
-            let work = self.work[d].drain();
+            let mut work = self.work[d].clone(); // sadly, we need to clone here
 
-            for mut wt in work {
+            for mut wt in work.drain() {
                 // SAFETY: `self.wave`'s size is unchanged during collapse
                 let wt: &mut WaveTile<Inner, N> = &mut wt;
 

@@ -20,8 +20,6 @@ use crate::ext::ndarray::NdIndex as WfcNdIndex;
 use crate::wavetile::WaveTilePtr;
 use crate::TileSet;
 
-// use rayon::prelude::*;
-
 pub use traits::WaveBase;
 pub mod traits;
 
@@ -53,6 +51,8 @@ where
     wave: Array<WaveTile<Inner, N>, DimN<N>>,
     work: Vec<HashSet<WaveTilePtr<Inner, N>>>,
     ones: BitSet,
+
+    f: Option<Box<dyn FnMut(Outer)>>,
 
     _outer: PhantomData<Outer>,
     _s: PhantomData<S>,
@@ -103,6 +103,7 @@ where
             wave,
             work: vec![HashSet::new(); max_man_dist],
             ones: BitSet::ones(2 * N * num_hashes),
+            f: None,
             _outer: PhantomData::<Outer>,
             _s: PhantomData::<S>,
         };
@@ -178,6 +179,11 @@ where
         }
 
         wave
+    }
+
+    fn attach(&mut self, f: Box<dyn FnMut(Outer)>) -> &mut Self {
+        self.f = Some(f);
+        self
     }
 }
 

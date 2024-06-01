@@ -299,7 +299,6 @@ version = "0.1.0"
 dependencies = [
  "image 0.25.0",
  "ndarray",
- "sdl2",
  "wfc",
 ]
 
@@ -414,6 +413,15 @@ dependencies = [
  "arbitrary",
  "cc",
  "once_cell",
+]
+
+[[package]]
+name = "live"
+version = "0.1.0"
+dependencies = [
+ "image 0.25.0",
+ "ndarray",
+ "wfc",
 ]
 
 [[package]]
@@ -948,7 +956,6 @@ version = "0.1.0"
 dependencies = [
  "image 0.25.0",
  "ndarray",
- "sdl2",
  "wfc",
 ]
 
