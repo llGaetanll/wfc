@@ -5,6 +5,8 @@ use std::hash::Hasher;
 use std::ops::Deref;
 use std::ops::DerefMut;
 
+use ndarray::Dimension;
+use ndarray::NdIndex;
 use rand::Rng;
 use rand::RngCore;
 
@@ -16,6 +18,8 @@ use crate::traits::Merge;
 use crate::traits::Recover;
 
 use crate::ext::ndarray::NdIndex as WfcNdIndex;
+use crate::types::Cache;
+use crate::types::DimN;
 use crate::util::partition_in_place;
 
 #[derive(Debug)]
@@ -201,9 +205,11 @@ impl<T, const N: usize> WaveTile<T, N> {
     }
 }
 
-impl<T, const N: usize> Recover<T> for WaveTile<T, N>
+impl<T, const N: usize> Recover<T, N> for WaveTile<T, N>
 where
     T: Clone + Merge,
+    DimN<N>: Dimension,
+    [usize; N]: NdIndex<DimN<N>>
 {
     type Inner = T;
 
@@ -223,6 +229,32 @@ where
             .collect();
 
         T::merge(&ts)
+    }
+}
+
+impl<T, const N: usize> WaveTile<T, N>
+where
+    WaveTile<T, N>: Recover<T, N>,
+    T: Clone + Merge,
+    DimN<N>: Dimension,
+    [usize; N]: NdIndex<DimN<N>>
+{
+    /// Recovers the `T` for type `WaveTile<T, N>`. Note that `T` must be `Merge`.
+    ///
+    /// In the future, this `Merge` requirement may be relaxed to only non-collapsed `WaveTile`s.
+    /// This is a temporary limitation of the API. TODO
+    pub fn recover_cached(&self, c: &mut Cache<T, N>) -> T {
+        let i = self.index;
+        if self.entropy == c.entropies[i] {
+            return c.cache[i].to_owned()
+        }
+
+        c.entropies[i] = self.entropy;
+
+        let res = self.recover();
+        c.cache[i] = res.clone();
+
+        res
     }
 }
 

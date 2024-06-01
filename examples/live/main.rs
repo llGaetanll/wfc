@@ -7,9 +7,9 @@ use sdl2::pixels::PixelFormatEnum;
 use sdl2::surface::Surface;
 use wfc::prelude::*;
 
-const WIDTH: usize = 40;
-const HEIGHT: usize = 40;
-const SCALE: usize = 10;
+const WIDTH: usize = 200;
+const HEIGHT: usize = 200;
+const SCALE: usize = 5;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let sdl_context = sdl2::init()?;
@@ -18,8 +18,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let window = video_subsystem
         .window(
             "Wave Function Collapse",
-            (SCALE * WIDTH).try_into().unwrap(),
-            (SCALE * HEIGHT).try_into().unwrap(),
+            (SCALE * WIDTH) as u32,
+            (SCALE * HEIGHT) as u32,
         )
         .position_centered()
         .build()?;
@@ -66,7 +66,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
             canvas.present();
         }))
-        .collapse(&mut rng);
+        .collapse_parallel(&mut rng);
 
     image.save("wave.png").expect("failed to save image");
 

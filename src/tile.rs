@@ -22,7 +22,7 @@ where
     }
 }
 
-impl<T, const N: usize> Recover<T> for Tile<T, N>
+impl<T, const N: usize> Recover<T, N> for Tile<T, N>
 where
     T: Clone,
 {

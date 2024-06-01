@@ -13,6 +13,7 @@ use crate::surface::Surface;
 use crate::traits::Merge;
 use crate::traits::Recover;
 use crate::traits::WaveTileable;
+use crate::types::Cache;
 use crate::types::DimN;
 use crate::wavetile::WaveTile;
 
@@ -53,6 +54,7 @@ where
     ones: BitSet,
 
     f: Option<Box<dyn FnMut(Outer)>>,
+    cache: Option<Cache<Inner, N>>,
 
     _outer: PhantomData<Outer>,
     _s: PhantomData<S>,
@@ -60,7 +62,7 @@ where
 
 impl<Inner, Outer, S, const N: usize> WaveBase<Inner, Outer, S, N> for Wave<Inner, Outer, S, N>
 where
-    Inner: WaveTileable<Inner, Outer, N>,
+    Inner: Merge + WaveTileable<Inner, Outer, N>,
     DimN<N>: Dimension,
     WfcNdIndex<N>: NdIndex<DimN<N>>,
     S: Surface<N>,
@@ -104,6 +106,7 @@ where
             work: vec![HashSet::new(); max_man_dist],
             ones: BitSet::ones(2 * N * num_hashes),
             f: None,
+            cache: None,
             _outer: PhantomData::<Outer>,
             _s: PhantomData::<S>,
         };
@@ -183,15 +186,27 @@ where
 
     fn attach(&mut self, f: Box<dyn FnMut(Outer)>) -> &mut Self {
         self.f = Some(f);
+
+        let dim = self.wave.raw_dim();
+
+        let ts = self.wave.iter().map(|wt| wt.recover()).collect();
+        let entropies = self.wave.iter().map(|wt| wt.entropy).collect();
+
+        self.cache = Some(Cache {
+            entropies: Array::from_shape_vec(dim, entropies).unwrap(),
+            cache: Array::from_shape_vec(dim, ts).unwrap()
+        });
+
         self
     }
 }
 
-impl<Inner, Outer, S, const N: usize> Recover<Outer> for Wave<Inner, Outer, S, N>
+impl<Inner, Outer, S, const N: usize> Recover<Outer, N> for Wave<Inner, Outer, S, N>
 where
     Inner: Merge + WaveTileable<Inner, Outer, N>,
     S: Surface<N>,
     DimN<N>: Dimension,
+    [usize; N]: NdIndex<DimN<N>>
 {
     type Inner = Inner;
 
@@ -201,6 +216,26 @@ where
     /// This is a temporary limitation of the API. TODO
     fn recover(&self) -> Outer {
         let ts = self.wave.iter().map(|wt| wt.recover()).collect();
+
+        let dim = self.wave.raw_dim();
+
+        let array = Array::from_shape_vec(dim, ts).unwrap();
+
+        Inner::stitch(&array).recover()
+    }
+}
+
+impl<Inner, Outer, S, const N: usize> Wave<Inner, Outer, S, N>
+where
+    Wave<Inner, Outer, S, N>: Recover<Outer, N, Inner = Inner>,
+    Inner: Merge + WaveTileable<Inner, Outer, N>,
+    S: Surface<N>,
+    DimN<N>: Dimension,
+    [usize; N]: NdIndex<DimN<N>>
+{
+    fn recover_cached(&mut self) -> Outer {
+        let cache = self.cache.as_mut().unwrap();
+        let ts = self.wave.iter().map(|wt| wt.recover_cached(cache)).collect();
 
         let dim = self.wave.raw_dim();
 

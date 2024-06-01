@@ -123,7 +123,10 @@ where
 pub trait Merge {
     fn merge(xs: &[Self]) -> Self
     where
-        Self: Sized + Clone;
+        Self: Sized + Clone,
+    {
+        xs[0].clone()
+    }
 }
 
 // NOTE: only for owned arrays.
@@ -279,16 +282,21 @@ where
 // of pixels, but when we recover a `Wave` of this type, we don't want a 2D array of pixels as
 // output, we want an image! This need for multiple `Outer` type implementations of `Recover`
 // requires us to lift `Outer` from a mere associated type to a divine generic argument.
-pub trait Recover<Outer> {
+pub trait Recover<Outer, const N: usize> {
     type Inner: Clone;
 
     fn recover(&self) -> Outer;
+
+    // fn recover_cached(&self, cache: &mut Cache<Self::Inner, N>) -> Outer {
+    //     // defaults to not using the cache at all
+    //     Self::recover(self)
+    // }
 }
 
 /// A simple wrapper trait for types which can be used as tiles of a `Wave`. This trait is
 /// primarily to avoid repeating the underlying trait bounds all over the crate.
 pub trait WaveTileable<Inner, Outer, const N: usize>:
-    Clone + BoundaryHash<N> + Stitch<N, T = Inner> + Recover<Outer, Inner = Inner>
+    Clone + BoundaryHash<N> + Stitch<N, T = Inner> + Recover<Outer, N, Inner = Inner>
 {
 }
 
@@ -297,7 +305,7 @@ macro_rules! impl_wavetileable {
         impl<T, U> WaveTileable<Array<T, DimN<$n>>, U, $n> for Array<T, DimN<$n>>
         where
             T: Clone + Hash,
-            Array<T, DimN<$n>>: Recover<U, Inner = Array<T, DimN<$n>>>,
+            Array<T, DimN<$n>>: Recover<U, $n, Inner = Array<T, DimN<$n>>>,
         {
         }
     };

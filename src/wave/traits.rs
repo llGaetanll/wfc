@@ -16,7 +16,7 @@ use rayon::prelude::*;
 
 pub trait WaveBase<Inner, Outer, S, const N: usize>
 where
-    Inner: WaveTileable<Inner, Outer, N>,
+    Inner: Merge + WaveTileable<Inner, Outer, N>,
     DimN<N>: Dimension,
     S: Surface<N>,
 {
@@ -27,7 +27,7 @@ where
 pub trait Wave<Inner, Outer, S, const N: usize>:
     WaveBase<Inner, Outer, S, N> + private::Fns<N>
 where
-    Inner: WaveTileable<Inner, Outer, N>,
+    Inner: Merge + WaveTileable<Inner, Outer, N>,
     DimN<N>: Dimension,
     S: Surface<N>,
 {
@@ -40,7 +40,7 @@ where
 pub trait ParWave<Inner, Outer, S, const N: usize>:
     WaveBase<Inner, Outer, S, N> + private::Fns<N> + private::ParFns<N>
 where
-    Inner: Send + Sync + WaveTileable<Inner, Outer, N>,
+    Inner: Send + Sync + Merge + WaveTileable<Inner, Outer, N>,
     DimN<N>: Dimension,
     S: Surface<N>,
 {
@@ -51,7 +51,7 @@ where
 
 impl<Inner, Outer, S, const N: usize> Wave<Inner, Outer, S, N> for super::Wave<Inner, Outer, S, N>
 where
-    super::Wave<Inner, Outer, S, N>: Recover<Outer, Inner = Inner>,
+    super::Wave<Inner, Outer, S, N>: Recover<Outer, N, Inner = Inner>,
     Inner: Merge + WaveTileable<Inner, Outer, N>,
     DimN<N>: Dimension,
     WfcNdIndex<N>: NdIndex<DimN<N>>,
@@ -74,7 +74,8 @@ where
             // we write the code this way because `recover` is potentially an expensive operation,
             // and we don't want to do it unless we know `f` is defined.
             if self.f.is_some() {
-                let res = <Self as Recover<Outer>>::recover(self);
+                let res = self.recover_cached();
+
                 // SAFETY: the `is_some` check
                 let f = unsafe { self.f.as_mut().unwrap_unchecked() };
                 f(res);
@@ -87,7 +88,7 @@ where
             }
         }
 
-        <Self as Recover<Outer>>::recover(self)
+        <Self as Recover<Outer, N>>::recover(self)
     }
 }
 
@@ -95,7 +96,7 @@ where
 impl<Inner, Outer, S, const N: usize> ParWave<Inner, Outer, S, N>
     for super::Wave<Inner, Outer, S, N>
 where
-    super::Wave<Inner, Outer, S, N>: Recover<Outer, Inner = Inner>,
+    super::Wave<Inner, Outer, S, N>: Recover<Outer, N, Inner = Inner>,
     Inner: Merge + Send + Sync + WaveTileable<Inner, Outer, N>,
     DimN<N>: Dimension,
     WfcNdIndex<N>: NdIndex<DimN<N>>,
@@ -114,13 +115,24 @@ where
             let wt_min = &mut self.wave[min_idx];
 
             let next = wt_min.collapse(rng, iter);
+
+            // we write the code this way because `recover` is potentially an expensive operation,
+            // and we don't want to do it unless we know `f` is defined.
+            if self.f.is_some() {
+                let res = self.recover_cached();
+
+                // SAFETY: the `is_some` check
+                let f = unsafe { self.f.as_mut().unwrap_unchecked() };
+                f(res);
+            }
+
             self.work[0].extend(next.into_iter().flat_map(|axis| axis.into_iter()).flatten()); // all distance 1
             if <Self as private::Fns<N>>::propagate(self, iter, min_idx).is_err() {
                 <Self as private::ParFns<N>>::rollback_parallel(self, iter);
             }
         }
 
-        <Self as Recover<Outer>>::recover(self)
+        <Self as Recover<Outer, N>>::recover(self)
     }
 }
 

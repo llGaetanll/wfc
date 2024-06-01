@@ -215,7 +215,7 @@ impl<T: Primitive> Merge for Rgba<T> {
     }
 }
 
-impl<P: Pixel> Recover<Image<P>> for Array2<P> {
+impl<P: Pixel> Recover<Image<P>, 2> for Array2<P> {
     type Inner = Array2<P>;
 
     fn recover(&self) -> Image<P> {
