@@ -1,6 +1,5 @@
 use image::ImageBuffer;
 use image::Pixel;
-
 use ndarray::Array;
 use ndarray::Array2;
 use ndarray::ArrayBase;

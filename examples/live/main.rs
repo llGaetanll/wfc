@@ -2,7 +2,6 @@ use std::error::Error;
 use std::path::PathBuf;
 
 use ndarray::Ix2;
-
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::surface::Surface;
 use wfc::prelude::*;
@@ -52,15 +51,17 @@ fn main() -> Result<(), Box<dyn Error>> {
             let mut flat_pixels = res.into_raw();
             let surface = Surface::from_data(
                 &mut flat_pixels,
-                (WIDTH * win_size) as u32,     // width of the texture
-                (HEIGHT * win_size) as u32,    // height of the texture
+                (WIDTH * win_size) as u32,      // width of the texture
+                (HEIGHT * win_size) as u32,     // height of the texture
                 (HEIGHT * win_size) as u32 * 3, // this is the number of channels for each pixel
                 PixelFormatEnum::RGB24,
-            ).unwrap();
+            )
+            .unwrap();
 
             // create a texture from the surface
             let texture = texture_creator
-                .create_texture_from_surface(surface).unwrap();
+                .create_texture_from_surface(surface)
+                .unwrap();
 
             canvas.copy(&texture, None, None).expect("failed to draw");
 

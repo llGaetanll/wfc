@@ -10,26 +10,22 @@ use image::Pixel;
 use image::Primitive;
 use image::Rgb;
 use image::Rgba;
-
 use ndarray::Array2;
 
 use crate::data::TileSet;
 use crate::ext::image::ImageToArrayExt;
 use crate::ext::ndarray::ArrayToImageExt;
+#[cfg(feature = "wrapping")]
+use crate::surface::wrapping::KleinBottle;
+#[cfg(feature = "wrapping")]
+use crate::surface::wrapping::ProjectivePlane;
+#[cfg(feature = "wrapping")]
+use crate::surface::wrapping::Torus;
 use crate::surface::Flat;
 use crate::surface::Surface;
 use crate::traits::Merge;
 use crate::traits::Recover;
 use crate::wave::Wave;
-
-#[cfg(feature = "wrapping")]
-use crate::surface::wrapping::KleinBottle;
-
-#[cfg(feature = "wrapping")]
-use crate::surface::wrapping::ProjectivePlane;
-
-#[cfg(feature = "wrapping")]
-use crate::surface::wrapping::Torus;
 
 pub type Image<P> = ImageBuffer<P, Vec<<P as Pixel>::Subpixel>>;
 pub type ImageWave<P, S> = Wave<Array2<P>, Image<P>, S, 2>;

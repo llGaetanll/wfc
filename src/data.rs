@@ -77,7 +77,7 @@ where
 
     pub fn compute_tiles(&mut self) {
         if !self.tiles.is_empty() {
-            return
+            return;
         }
 
         let mut hash_index: usize = 0;

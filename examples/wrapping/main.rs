@@ -8,7 +8,6 @@ use image::Pixel;
 use image::Rgba;
 use ndarray::Array2;
 use ndarray::Ix2;
-
 use wfc::impls::image::Image;
 use wfc::prelude::*;
 use wfc::surface::Surface;
@@ -30,7 +29,10 @@ fn scale_image<P: Pixel>(image: Img<P>, scale: u32) -> Img<P> {
     res
 }
 
-fn build_wave<S: Surface<2>>(images: Vec<DynamicImage>, shape: Ix2) -> Wave<Array2<Rgba<u8>>, Image<Rgba<u8>>, S, 2> {
+fn build_wave<S: Surface<2>>(
+    images: Vec<DynamicImage>,
+    shape: Ix2,
+) -> Wave<Array2<Rgba<u8>>, Image<Rgba<u8>>, S, 2> {
     let mut tileset = TileSet::from_images(images);
     tileset.with_rots().with_flips();
 
@@ -57,7 +59,10 @@ fn main() {
         let image = wave.collapse(&mut rng);
         let t1 = SystemTime::now();
 
-        println!("collapsed flat wave in {:?}", t1.duration_since(t0).unwrap());
+        println!(
+            "collapsed flat wave in {:?}",
+            t1.duration_since(t0).unwrap()
+        );
 
         println!("scaling image");
         let image = scale_image(image, 10); // resize the image
@@ -71,7 +76,10 @@ fn main() {
         let image = wave.collapse(&mut rng);
         let t1 = SystemTime::now();
 
-        println!("collapsed torus wave in {:?}", t1.duration_since(t0).unwrap());
+        println!(
+            "collapsed torus wave in {:?}",
+            t1.duration_since(t0).unwrap()
+        );
 
         println!("scaling image");
         let image = scale_image(image, 10); // resize the image
@@ -85,11 +93,16 @@ fn main() {
         let image = wave.collapse(&mut rng);
         let t1 = SystemTime::now();
 
-        println!("collapsed projective plane wave in {:?}", t1.duration_since(t0).unwrap());
+        println!(
+            "collapsed projective plane wave in {:?}",
+            t1.duration_since(t0).unwrap()
+        );
 
         println!("scaling image");
         let image = scale_image(image, 10); // resize the image
-        image.save("projective-plane.png").expect("failed to save image");
+        image
+            .save("projective-plane.png")
+            .expect("failed to save image");
     }
 
     {
@@ -99,10 +112,15 @@ fn main() {
         let image = wave.collapse(&mut rng);
         let t1 = SystemTime::now();
 
-        println!("collapsed klein bottle wave in {:?}", t1.duration_since(t0).unwrap());
+        println!(
+            "collapsed klein bottle wave in {:?}",
+            t1.duration_since(t0).unwrap()
+        );
 
         println!("scaling image");
         let image = scale_image(image, 10); // resize the image
-        image.save("klein-bottle.png").expect("failed to save image");
+        image
+            .save("klein-bottle.png")
+            .expect("failed to save image");
     }
 }

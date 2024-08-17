@@ -1,10 +1,9 @@
+use core::hash::Hash;
 use std::array::from_fn;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::hash::Hasher;
-
-use core::hash::Hash;
 
 use ndarray::Array;
 use ndarray::Array2;

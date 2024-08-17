@@ -37,10 +37,9 @@ impl<const N: usize> Surface<N> for Flat {
 
 #[cfg(feature = "wrapping")]
 pub mod wrapping {
+    use super::Surface;
     use crate::ext::ndarray::NdIndex as WfcNdIndex;
     use crate::wave::Wave;
-
-    use super::Surface;
 
     pub struct Torus;
     pub struct ProjectivePlane;

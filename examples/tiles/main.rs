@@ -5,7 +5,6 @@ use std::time::SystemTime;
 use image::ImageBuffer;
 use image::Pixel;
 use ndarray::Ix2;
-
 use wfc::prelude::*;
 
 type Img<P> = ImageBuffer<P, Vec<<P as Pixel>::Subpixel>>;

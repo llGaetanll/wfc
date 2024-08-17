@@ -1,5 +1,4 @@
 use image::GenericImage;
-
 use image::Pixel;
 use ndarray::Array2;
 use ndarray::ShapeError;

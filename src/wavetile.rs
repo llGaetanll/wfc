@@ -13,11 +13,10 @@ use rand::RngCore;
 use crate::bitset;
 use crate::bitset::BitSet;
 use crate::bitset::BitSlice;
+use crate::ext::ndarray::NdIndex as WfcNdIndex;
 use crate::tile::Tile;
 use crate::traits::Merge;
 use crate::traits::Recover;
-
-use crate::ext::ndarray::NdIndex as WfcNdIndex;
 use crate::types::Cache;
 use crate::types::DimN;
 use crate::util::partition_in_place;
@@ -207,7 +206,7 @@ impl<T, const N: usize> Recover<T> for WaveTile<T, N>
 where
     T: Clone + Merge,
     DimN<N>: Dimension,
-    [usize; N]: NdIndex<DimN<N>>
+    [usize; N]: NdIndex<DimN<N>>,
 {
     type Inner = T;
 
@@ -235,7 +234,7 @@ where
     WaveTile<T, N>: Recover<T>,
     T: Clone + Merge,
     DimN<N>: Dimension,
-    [usize; N]: NdIndex<DimN<N>>
+    [usize; N]: NdIndex<DimN<N>>,
 {
     /// Recovers the `T` for type `WaveTile<T, N>`. Note that `T` must be `Merge`.
     ///
@@ -244,7 +243,7 @@ where
     pub fn recover_cached(&self, c: &mut Cache<T, N>) -> T {
         let i = self.index;
         if self.entropy == c.entropies[i] {
-            return c.cache[i].to_owned()
+            return c.cache[i].to_owned();
         }
 
         c.entropies[i] = self.entropy;

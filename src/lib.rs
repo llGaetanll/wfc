@@ -12,17 +12,14 @@ mod bitset;
 mod tile;
 mod wavetile;
 
-pub mod wave;
 pub mod prelude;
+pub mod wave;
 
 // re-export rand so downstream crates don't have to think as hard about matching `wfc`'s version
-pub use ndarray;
-pub use rand;
-
-#[cfg(feature = "sdl")]
-pub use sdl2;
-
+pub use data::TileSet;
 #[cfg(feature = "image")]
 pub use image;
-
-pub use data::TileSet;
+pub use ndarray;
+pub use rand;
+#[cfg(feature = "sdl")]
+pub use sdl2;

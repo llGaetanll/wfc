@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 
 use ndarray::Ix2;
-
 use wfc::prelude::*;
 use wfc::wave::traits::ParWave;
 

@@ -5,9 +5,12 @@ use ndarray::Array;
 use ndarray::Dimension;
 use ndarray::IntoDimension;
 use ndarray::NdIndex;
+use ndarray::ShapeBuilder;
+pub use traits::WaveBase;
 
 use crate::bitset::BitSet;
 use crate::bitset::BitSlice;
+use crate::ext::ndarray::NdIndex as WfcNdIndex;
 use crate::ext::ndarray::WaveArrayExt;
 use crate::surface::Surface;
 use crate::traits::Merge;
@@ -16,12 +19,8 @@ use crate::traits::WaveTileable;
 use crate::types::Cache;
 use crate::types::DimN;
 use crate::wavetile::WaveTile;
-
-use crate::ext::ndarray::NdIndex as WfcNdIndex;
 use crate::wavetile::WaveTilePtr;
 use crate::TileSet;
-
-pub use traits::WaveBase;
 pub mod traits;
 
 /// `Wave` is the main type of the API that users interact with. It comes with some seemingly
@@ -35,7 +34,7 @@ pub mod traits;
 ///   containing image tiles. We use the `image` crate to load and save images, but internally, an
 ///   image is just a 2D array of pixels. This second representation is more fit to perform
 ///   boundary hash computations than an `Image` type would be. For this reason, it is more
-///   efficient for the `wave` to use it as its type under the hood. 
+///   efficient for the `wave` to use it as its type under the hood.
 ///
 /// - `S` represents the type of surface that the `Wave` sits on. Most often, this will just be a
 ///   `Flat` surface, but on occasion, the user may want to be able to collapse a `Wave` on a wrapping
@@ -68,7 +67,10 @@ where
     S: Surface<N>,
 {
     // TODO: remove ndarray from public facing API
-    fn init(tileset: &mut TileSet<Inner, Outer, S, N>, shape: DimN<N>) -> Self {
+    fn init<Sh>(tileset: &mut TileSet<Inner, Outer, S, N>, shape: Sh) -> Self
+    where
+        Sh: ShapeBuilder<Dim = DimN<N>>,
+    {
         tileset.compute_tiles(); // in case not called yet
 
         let (tiles, co_tiles) = tileset.get_tile_ptrs();
@@ -98,7 +100,6 @@ where
             WaveTile::new(tiles, index, num_hashes, parity, dummy_ptr)
         });
 
-        // TODO: use shape to compute this instead
         let max_man_dist = wave.max_manhattan_dist();
 
         let mut wave = Wave {
@@ -194,7 +195,7 @@ where
 
         self.cache = Some(Cache {
             entropies: Array::from_shape_vec(dim, entropies).unwrap(),
-            cache: Array::from_shape_vec(dim, ts).unwrap()
+            cache: Array::from_shape_vec(dim, ts).unwrap(),
         });
 
         self
@@ -206,7 +207,7 @@ where
     Inner: Merge + WaveTileable<Inner, Outer, N>,
     S: Surface<N>,
     DimN<N>: Dimension,
-    [usize; N]: NdIndex<DimN<N>>
+    [usize; N]: NdIndex<DimN<N>>,
 {
     type Inner = Inner;
 
@@ -231,11 +232,15 @@ where
     Inner: Merge + WaveTileable<Inner, Outer, N>,
     S: Surface<N>,
     DimN<N>: Dimension,
-    [usize; N]: NdIndex<DimN<N>>
+    [usize; N]: NdIndex<DimN<N>>,
 {
     fn recover_cached(&mut self) -> Outer {
         let cache = self.cache.as_mut().unwrap();
-        let ts = self.wave.iter().map(|wt| wt.recover_cached(cache)).collect();
+        let ts = self
+            .wave
+            .iter()
+            .map(|wt| wt.recover_cached(cache))
+            .collect();
 
         let dim = self.wave.raw_dim();
 

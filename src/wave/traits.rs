@@ -1,18 +1,22 @@
 use std::collections::HashSet;
 
-use ndarray::{Dimension, NdIndex};
+use ndarray::Dimension;
+use ndarray::NdIndex;
+use ndarray::ShapeBuilder;
 use rand::RngCore;
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 
 use crate::data::TileSet;
 use crate::ext::ndarray::NdIndex as WfcNdIndex;
 use crate::surface::Surface;
-use crate::traits::{Merge, Recover, WaveTileable};
+use crate::traits::Merge;
+use crate::traits::Recover;
+use crate::traits::WaveTileable;
 use crate::types::DimN;
 use crate::util::manhattan_dist;
-use crate::wavetile::{WaveTile, WaveTileError};
-
-#[cfg(feature = "parallel")]
-use rayon::prelude::*;
+use crate::wavetile::WaveTile;
+use crate::wavetile::WaveTileError;
 
 pub trait WaveBase<Inner, Outer, S, const N: usize>
 where
@@ -20,7 +24,9 @@ where
     DimN<N>: Dimension,
     S: Surface<N>,
 {
-    fn init(tileset: &mut TileSet<Inner, Outer, S, N>, shape: DimN<N>) -> Self;
+    fn init<Sh>(tileset: &mut TileSet<Inner, Outer, S, N>, shape: Sh) -> Self
+    where
+        Sh: ShapeBuilder<Dim = DimN<N>>;
     fn attach(&mut self, f: Box<dyn FnMut(Outer)>) -> &mut Self;
 }
 
@@ -137,7 +143,8 @@ where
 }
 
 mod private {
-    use crate::{ext::ndarray::NdIndex as WfcNdIndex, wavetile::WaveTileError};
+    use crate::ext::ndarray::NdIndex as WfcNdIndex;
+    use crate::wavetile::WaveTileError;
 
     pub trait Fns<const N: usize> {
         fn propagate(&mut self, iter: usize, index: WfcNdIndex<N>) -> Result<(), WaveTileError>;
@@ -162,8 +169,6 @@ where
     DimN<N>: Dimension,
     S: Surface<N>,
 {
-    // TODO: maybe iter should be part of the wave? That way, we don't have to pass it through
-    // everything
     fn propagate(&mut self, iter: usize, index: WfcNdIndex<N>) -> Result<(), WaveTileError> {
         for d in 0.. {
             let mut next_work = HashSet::new();
