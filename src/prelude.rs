@@ -6,7 +6,7 @@ pub use crate::traits::Merge;
 pub use crate::traits::WaveTileable;
 
 pub use crate::wave::traits::WaveBase;
-pub use crate::wave::traits::Wave;
+pub use crate::wave::traits::Wave as _;
 
 #[cfg(feature = "parallel")]
 pub use crate::wave::traits::ParWave;
