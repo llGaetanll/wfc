@@ -17,10 +17,10 @@ use crate::data::TileSet;
 use crate::ext::image::ImageToArrayExt;
 use crate::ext::ndarray::ArrayToImageExt;
 use crate::surface::Flat;
-use crate::surface::FlatWave;
 use crate::surface::Surface;
 use crate::traits::Merge;
 use crate::traits::Recover;
+use crate::wave::Wave;
 
 #[cfg(feature = "wrapping")]
 use crate::surface::wrapping::KleinBottle;
@@ -32,7 +32,7 @@ use crate::surface::wrapping::ProjectivePlane;
 use crate::surface::wrapping::Torus;
 
 pub type Image<P> = ImageBuffer<P, Vec<<P as Pixel>::Subpixel>>;
-pub type ImageWave<P> = FlatWave<Array2<P>, Image<P>, 2>;
+pub type ImageWave<P, S> = Wave<Array2<P>, Image<P>, S, 2>;
 pub type ImageTileSet<P, S> = TileSet<Array2<P>, Image<P>, S, 2>;
 
 pub struct ImageParams<I: GenericImage, S: Surface<2>> {
