@@ -201,7 +201,7 @@ where
     }
 }
 
-impl<Inner, Outer, S, const N: usize> Recover<Outer, N> for Wave<Inner, Outer, S, N>
+impl<Inner, Outer, S, const N: usize> Recover<Outer> for Wave<Inner, Outer, S, N>
 where
     Inner: Merge + WaveTileable<Inner, Outer, N>,
     S: Surface<N>,
@@ -227,7 +227,7 @@ where
 
 impl<Inner, Outer, S, const N: usize> Wave<Inner, Outer, S, N>
 where
-    Wave<Inner, Outer, S, N>: Recover<Outer, N, Inner = Inner>,
+    Wave<Inner, Outer, S, N>: Recover<Outer, Inner = Inner>,
     Inner: Merge + WaveTileable<Inner, Outer, N>,
     S: Surface<N>,
     DimN<N>: Dimension,

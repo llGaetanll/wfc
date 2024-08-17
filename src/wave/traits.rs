@@ -51,7 +51,7 @@ where
 
 impl<Inner, Outer, S, const N: usize> Wave<Inner, Outer, S, N> for super::Wave<Inner, Outer, S, N>
 where
-    super::Wave<Inner, Outer, S, N>: Recover<Outer, N, Inner = Inner>,
+    super::Wave<Inner, Outer, S, N>: Recover<Outer, Inner = Inner>,
     Inner: Merge + WaveTileable<Inner, Outer, N>,
     DimN<N>: Dimension,
     WfcNdIndex<N>: NdIndex<DimN<N>>,
@@ -88,7 +88,7 @@ where
             }
         }
 
-        <Self as Recover<Outer, N>>::recover(self)
+        <Self as Recover<Outer>>::recover(self)
     }
 }
 
@@ -96,7 +96,7 @@ where
 impl<Inner, Outer, S, const N: usize> ParWave<Inner, Outer, S, N>
     for super::Wave<Inner, Outer, S, N>
 where
-    super::Wave<Inner, Outer, S, N>: Recover<Outer, N, Inner = Inner>,
+    super::Wave<Inner, Outer, S, N>: Recover<Outer, Inner = Inner>,
     Inner: Merge + Send + Sync + WaveTileable<Inner, Outer, N>,
     DimN<N>: Dimension,
     WfcNdIndex<N>: NdIndex<DimN<N>>,
@@ -132,7 +132,7 @@ where
             }
         }
 
-        <Self as Recover<Outer, N>>::recover(self)
+        <Self as Recover<Outer>>::recover(self)
     }
 }
 
@@ -167,9 +167,8 @@ where
     fn propagate(&mut self, iter: usize, index: WfcNdIndex<N>) -> Result<(), WaveTileError> {
         for d in 0.. {
             let mut next_work = HashSet::new();
-            let mut work = self.work[d].clone(); // sadly, we need to clone here
 
-            for mut wt in work.drain() {
+            for mut wt in self.work[d].drain() {
                 // SAFETY: `self.wave`'s size is unchanged during collapse
                 let wt: &mut WaveTile<Inner, N> = &mut wt;
 

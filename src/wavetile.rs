@@ -205,7 +205,7 @@ impl<T, const N: usize> WaveTile<T, N> {
     }
 }
 
-impl<T, const N: usize> Recover<T, N> for WaveTile<T, N>
+impl<T, const N: usize> Recover<T> for WaveTile<T, N>
 where
     T: Clone + Merge,
     DimN<N>: Dimension,
@@ -234,7 +234,7 @@ where
 
 impl<T, const N: usize> WaveTile<T, N>
 where
-    WaveTile<T, N>: Recover<T, N>,
+    WaveTile<T, N>: Recover<T>,
     T: Clone + Merge,
     DimN<N>: Dimension,
     [usize; N]: NdIndex<DimN<N>>
