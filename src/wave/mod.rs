@@ -212,8 +212,8 @@ where
 
     /// Recovers the `Outer` type for type `Wave<Inner, Outer, S, N>`.
     ///
-    /// In the future, this `Merge` requirement may be relaxed to only non-collapsed `WaveTile`s.
-    /// This is a temporary limitation of the API. TODO
+    /// TODO: In the future, this `Merge` requirement may be relaxed to only non-collapsed `WaveTile`s.
+    /// This is a temporary limitation of the API.
     fn recover(&self) -> Outer {
         let ts = self.wave.iter().map(|wt| wt.recover()).collect();
 

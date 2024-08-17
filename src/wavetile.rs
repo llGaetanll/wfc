@@ -212,8 +212,8 @@ where
 
     /// Recovers the `T` for type `WaveTile<T, N>`. Note that `T` must be `Merge`.
     ///
-    /// In the future, this `Merge` requirement may be relaxed to only non-collapsed `WaveTile`s.
-    /// This is a temporary limitation of the API. TODO
+    /// TODO: In the future, this `Merge` requirement may be relaxed to only non-collapsed `WaveTile`s.
+    /// This is a temporary limitation of the API.
     fn recover(&self) -> T {
         let ts: Vec<T> = self.tiles[self.start_index..]
             .iter()
@@ -238,8 +238,8 @@ where
 {
     /// Recovers the `T` for type `WaveTile<T, N>`. Note that `T` must be `Merge`.
     ///
-    /// In the future, this `Merge` requirement may be relaxed to only non-collapsed `WaveTile`s.
-    /// This is a temporary limitation of the API. TODO
+    /// TODO: In the future, this `Merge` requirement may be relaxed to only non-collapsed `WaveTile`s.
+    /// This is a temporary limitation of the API.
     pub fn recover_cached(&self, c: &mut Cache<T, N>) -> T {
         let i = self.index;
         if self.entropy == c.entropies[i] {
