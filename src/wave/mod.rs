@@ -38,7 +38,7 @@ pub mod traits;
 ///   efficient for the `wave` to use it as its type under the hood. 
 ///
 /// - `S` represents the type of surface that the `Wave` sits on. Most often, this will just be a
-///   `Flat` surface, but on occasion, the user may want to be able to collapse a way on a wrapping
+///   `Flat` surface, but on occasion, the user may want to be able to collapse a `Wave` on a wrapping
 ///   type of surface, such as a Torus or a Klein Bottle.
 ///
 /// - `N` represents the dimension of the `Wave`. For instance, image `Wave`s have `N = 2`, since
