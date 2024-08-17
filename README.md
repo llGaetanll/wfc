@@ -28,5 +28,5 @@ The following command runs the `image` example, with the `rooms.png` sample on a
 tiling window of sidelength 3.
 
 ```
-cargo run --release --example image -- ./examples/image/samples/rooms.png 3
+cargo run --release --example image -- ./examples/samples/images/rooms.png 3
 ```

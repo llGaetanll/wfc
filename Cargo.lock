@@ -1109,6 +1109,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "wrapping"
+version = "0.1.0"
+dependencies = [
+ "image 0.25.0",
+ "ndarray",
+ "wfc",
+]
+
+[[package]]
 name = "zune-core"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"

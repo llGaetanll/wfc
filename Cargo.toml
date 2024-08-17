@@ -1,4 +1,4 @@
-workspace = { members = ["examples/image", "examples/tiles", "examples/live"] }
+workspace = { members = ["examples/image", "examples/tiles", "examples/live", "examples/wrapping"] }
 
 [package]
 name = "wfc"
@@ -13,7 +13,7 @@ image = { version = "0.25.0", optional = true }
 rayon = { version = "1.10.0", optional = true }
 
 [features]
-default = ["image", "parallel", "sdl"]
+default = ["image", "parallel", "sdl", "wrapping"]
 wrapping = []
 parallel = ["dep:rayon", "ndarray/rayon"]
 image = ["dep:image"]

@@ -25,7 +25,7 @@ fn scale_image<P: Pixel>(image: Img<P>, scale: u32) -> Img<P> {
 }
 
 fn main() {
-    let tiles_path = PathBuf::from("examples/tiles/tileset/");
+    let tiles_path = PathBuf::from("examples/samples/tiles/");
     let images: Vec<_> = fs::read_dir(tiles_path)
         .expect("tileset directory not found")
         .filter_map(|file| {

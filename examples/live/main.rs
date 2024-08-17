@@ -32,7 +32,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let texture_creator = canvas.texture_creator();
 
-    let img_path = PathBuf::from("examples/live/sample.png");
+    let img_path = PathBuf::from("examples/samples/images/rooms.png");
     let win_size = 3;
 
     let image = image::open(img_path).expect("image not found");
