@@ -7,9 +7,9 @@ use sdl2::pixels::PixelFormatEnum;
 use sdl2::surface::Surface;
 use wfc::prelude::*;
 
-const WIDTH: usize = 200;
-const HEIGHT: usize = 200;
-const SCALE: usize = 5;
+const WIDTH: usize = 60;
+const HEIGHT: usize = 60;
+const SCALE: usize = 10;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let sdl_context = sdl2::init()?;
@@ -54,7 +54,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 &mut flat_pixels,
                 (WIDTH * win_size) as u32,     // width of the texture
                 (HEIGHT * win_size) as u32,    // height of the texture
-                (WIDTH * win_size) as u32 * 3, // this is the number of channels for each pixel
+                (HEIGHT * win_size) as u32 * 3, // this is the number of channels for each pixel
                 PixelFormatEnum::RGB24,
             ).unwrap();
 
