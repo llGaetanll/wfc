@@ -1,7 +1,6 @@
 use std::error::Error;
 use std::path::PathBuf;
 
-use ndarray::Ix2;
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::surface::Surface;
 use wfc::prelude::*;
@@ -40,7 +39,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut tileset = params.tileset();
     tileset.with_rots().with_flips();
 
-    let mut wave = ImageWave::init(&mut tileset, Ix2(WIDTH, HEIGHT));
+    let mut wave = ImageWave::init(&mut tileset, (WIDTH, HEIGHT));
 
     let mut rng = rand::thread_rng();
 

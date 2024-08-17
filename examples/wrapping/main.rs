@@ -6,9 +6,6 @@ use image::DynamicImage;
 use image::ImageBuffer;
 use image::Pixel;
 use image::Rgba;
-use ndarray::Array2;
-use ndarray::Ix2;
-use wfc::impls::image::Image;
 use wfc::prelude::*;
 use wfc::surface::Surface;
 use wfc::wave::Wave;
@@ -31,8 +28,8 @@ fn scale_image<P: Pixel>(image: Img<P>, scale: u32) -> Img<P> {
 
 fn build_wave<S: Surface<2>>(
     images: Vec<DynamicImage>,
-    shape: Ix2,
-) -> Wave<Array2<Rgba<u8>>, Image<Rgba<u8>>, S, 2> {
+    shape: (usize, usize),
+) -> ImageWave<Rgba<u8>, S> {
     let mut tileset = TileSet::from_images(images);
     tileset.with_rots().with_flips();
 
@@ -49,7 +46,7 @@ fn main() {
         })
         .collect();
 
-    let shape = Ix2(3, 3);
+    let shape = (3, 3);
     let mut rng = rand::thread_rng();
 
     {

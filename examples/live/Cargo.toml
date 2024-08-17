@@ -7,7 +7,6 @@ edition = "2021"
 
 [dependencies]
 wfc = { path = "../../", features = ["sdl"] }
-ndarray = "0.15.6"
 image = "0.25.0"
 
 [[bin]]

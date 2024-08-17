@@ -2,7 +2,6 @@ use std::env;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
-use ndarray::Ix2;
 use wfc::prelude::*;
 use wfc::wave::traits::ParWave;
 
@@ -24,7 +23,7 @@ fn main() {
     let mut tileset = params.tileset();
     tileset.with_rots().with_flips();
 
-    let mut wave = ImageWave::init(&mut tileset, Ix2(80, 80));
+    let mut wave = ImageWave::init(&mut tileset, (80, 80));
 
     let mut rng = rand::thread_rng();
 

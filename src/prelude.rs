@@ -25,7 +25,6 @@ mod wrapping {
 
 #[cfg(feature = "image")]
 pub use image;
-pub use ndarray;
 pub use rand;
 #[cfg(feature = "sdl")]
 pub use sdl2;

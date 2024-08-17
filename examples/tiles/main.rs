@@ -4,7 +4,6 @@ use std::time::SystemTime;
 
 use image::ImageBuffer;
 use image::Pixel;
-use ndarray::Ix2;
 use wfc::prelude::*;
 
 type Img<P> = ImageBuffer<P, Vec<<P as Pixel>::Subpixel>>;
@@ -37,7 +36,7 @@ fn main() {
 
     tileset.with_rots().with_flips();
 
-    let mut wave = ImageWave::init(&mut tileset, Ix2(2, 2));
+    let mut wave = ImageWave::init(&mut tileset, (2, 2));
 
     let mut rng = rand::thread_rng();
 

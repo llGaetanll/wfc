@@ -66,7 +66,6 @@ where
     WfcNdIndex<N>: NdIndex<DimN<N>>,
     S: Surface<N>,
 {
-    // TODO: remove ndarray from public facing API
     fn init<Sh>(tileset: &mut TileSet<Inner, Outer, S, N>, shape: Sh) -> Self
     where
         Sh: ShapeBuilder<Dim = DimN<N>>,

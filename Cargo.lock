@@ -298,7 +298,6 @@ name = "image"
 version = "0.1.0"
 dependencies = [
  "image 0.25.0",
- "ndarray",
  "wfc",
 ]
 
@@ -420,7 +419,6 @@ name = "live"
 version = "0.1.0"
 dependencies = [
  "image 0.25.0",
- "ndarray",
  "wfc",
 ]
 
@@ -955,7 +953,6 @@ name = "tiles"
 version = "0.1.0"
 dependencies = [
  "image 0.25.0",
- "ndarray",
  "wfc",
 ]
 
@@ -1113,7 +1110,6 @@ name = "wrapping"
 version = "0.1.0"
 dependencies = [
  "image 0.25.0",
- "ndarray",
  "wfc",
 ]
 
