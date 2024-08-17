@@ -32,7 +32,6 @@ pub type Iter = usize;
 pub type Index = usize;
 
 pub struct WaveTile<T, const N: usize> {
-    pub parity: usize, // either 0 or 1
     pub hashes: BitSet,
     pub neighbors: NeighborWaveTiles<T, N>,
     pub neighbor_hashes: [[*const BitSlice; 2]; N],
@@ -63,7 +62,6 @@ impl<T, const N: usize> WaveTile<T, N> {
         let masks = bitset::gen_bitmasks(num_hashes, parity);
 
         let mut wavetile = WaveTile {
-            parity,
             hashes: BitSet::zeros(2 * N * num_hashes),
             neighbor_hashes: [[temp_ptr; 2]; N],
             neighbors: [[None; 2]; N],
