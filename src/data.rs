@@ -32,7 +32,6 @@ where
     pub data: Vec<Inner>,
 
     tiles: Vec<Tile<Inner, N>>,
-    co_tiles: Vec<Tile<Inner, N>>,
 
     tile_size: usize,
     _outer: PhantomData<Outer>,
@@ -51,7 +50,6 @@ where
             data,
 
             tiles: vec![],
-            co_tiles: vec![],
 
             tile_size,
             _outer: PhantomData::<Outer>,
@@ -59,8 +57,8 @@ where
         }
     }
 
-    pub fn get_tile_ptrs(&self) -> (Vec<*const Tile<Inner, N>>, Vec<*const Tile<Inner, N>>) {
-        (to_ptrs(&self.tiles), to_ptrs(&self.co_tiles))
+    pub fn get_tile_ptrs(&self) -> Vec<*const Tile<Inner, N>> {
+        to_ptrs(&self.tiles)
     }
 }
 
@@ -104,7 +102,6 @@ where
 
         for (hashes, data) in tile_hashes.iter().zip(&self.data) {
             let mut bitset = BitSet::zeros(2 * N * self.num_hashes);
-            let mut co_bitset = BitSet::zeros(2 * N * self.num_hashes);
 
             // This is where we define the mapping in our tile's bitset. Some explanation is in
             // order.
@@ -138,15 +135,10 @@ where
 
                 bitset.on((2 * i) * self.num_hashes + index_left);
                 bitset.on((2 * i + 1) * self.num_hashes + index_right);
-
-                co_bitset.on((2 * i + 1) * self.num_hashes + index_left);
-                co_bitset.on((2 * i) * self.num_hashes + index_right);
             }
 
             self.tiles
                 .push(Tile::new(data.clone(), bitset, self.tile_size));
-            self.co_tiles
-                .push(Tile::new(data.clone(), co_bitset, self.tile_size));
         }
     }
 }

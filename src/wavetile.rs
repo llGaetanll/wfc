@@ -42,6 +42,7 @@ pub struct WaveTile<T, const N: usize> {
     // (iter, index)
     filtered_tile_indices: Vec<(Iter, Index)>,
     start_index: Index, // cached for speed
+    num_hashes: usize,
 
     alt_bitset: BitSet,      // to avoid allocs at runtime
     masks: [[BitSet; 2]; N], // NOTE: depends on parity
@@ -53,12 +54,11 @@ impl<T, const N: usize> WaveTile<T, N> {
         tiles: Vec<*const Tile<T, N>>,
         index: WfcNdIndex<N>,
         num_hashes: usize,
-        parity: usize,
         temp_ptr: *const BitSlice,
     ) -> Self {
         let entropy = tiles.len();
 
-        let masks = bitset::gen_bitmasks(num_hashes, parity);
+        let masks = bitset::gen_bitmasks(num_hashes, 0);
 
         let mut wavetile = WaveTile {
             hashes: BitSet::zeros(2 * N * num_hashes),
@@ -72,6 +72,7 @@ impl<T, const N: usize> WaveTile<T, N> {
             // avoid reallocs during collapse
             filtered_tile_indices: Vec::with_capacity(entropy),
             start_index: 0,
+            num_hashes,
 
             alt_bitset: BitSet::zeros(2 * N * num_hashes),
             masks,
@@ -168,7 +169,9 @@ impl<T, const N: usize> WaveTile<T, N> {
                 let hashes = unsafe { &**hash_right };
 
                 let mut res = mask_right.clone(); // cheap
+                res.swap_axes(self.num_hashes);
                 res.intersect(hashes);
+                res.swap_axes(self.num_hashes);
 
                 res
             };
@@ -178,7 +181,9 @@ impl<T, const N: usize> WaveTile<T, N> {
                 let hashes = unsafe { &**hash_left };
 
                 let mut res = mask_left.clone();
+                res.swap_axes(self.num_hashes);
                 res.intersect(hashes);
+                res.swap_axes(self.num_hashes);
 
                 res
             };

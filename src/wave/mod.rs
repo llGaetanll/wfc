@@ -72,7 +72,7 @@ where
     {
         tileset.compute_tiles(); // in case not called yet
 
-        let (tiles, co_tiles) = tileset.get_tile_ptrs();
+        let tiles = tileset.get_tile_ptrs();
         let num_hashes = tileset.num_hashes;
         let dummy = BitSet::new();
         let dummy_ptr: *const BitSlice = &dummy as &BitSlice;
@@ -81,22 +81,13 @@ where
             let i = i.into_dimension();
             let i = i.as_array_view();
 
-            let mut parity: usize = i.sum();
-            parity %= 2;
-
             let index: WfcNdIndex<N> = i
                 .as_slice()
                 .expect("not in standard order!")
                 .try_into()
                 .unwrap();
 
-            let tiles = if parity == 0 {
-                tiles.clone()
-            } else {
-                co_tiles.clone()
-            };
-
-            WaveTile::new(tiles, index, num_hashes, parity, dummy_ptr)
+            WaveTile::new(tiles.clone(), index, num_hashes, dummy_ptr)
         });
 
         let max_man_dist = wave.max_manhattan_dist();
