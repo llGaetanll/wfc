@@ -41,6 +41,19 @@ pub mod wrapping {
     use crate::ext::ndarray::NdIndex as WfcNdIndex;
     use crate::wave::Wave;
 
+    pub trait WrappingSurface<const N: usize> {
+        fn neighborhood(shape: [usize; N], i: WfcNdIndex<N>) -> [[WfcNdIndex<N>; 2]; N];
+    }
+
+    impl<T, const N: usize> Surface<N> for T
+    where
+        T: WrappingSurface<N>,
+    {
+        fn neighborhood(shape: [usize; N], i: WfcNdIndex<N>) -> [[Option<WfcNdIndex<N>>; 2]; N] {
+            Self::neighborhood(shape, i).map(|[l, r]| [Some(l), Some(r)])
+        }
+    }
+
     pub struct Torus;
     pub struct ProjectivePlane;
     pub struct KleinBottle;
@@ -49,81 +62,77 @@ pub mod wrapping {
     pub type ProjectiveWave<Inner, Outer> = Wave<Inner, Outer, ProjectivePlane, 2>;
     pub type KleinWave<Inner, Outer> = Wave<Inner, Outer, KleinBottle, 2>;
 
-    impl Surface<2> for Torus {
-        fn neighborhood(shape: [usize; 2], i: WfcNdIndex<2>) -> [[Option<WfcNdIndex<2>>; 2]; 2] {
+    impl WrappingSurface<2> for Torus {
+        fn neighborhood(shape: [usize; 2], i: WfcNdIndex<2>) -> [[WfcNdIndex<2>; 2]; 2] {
             let [x, y] = i;
             let [n, m] = shape;
 
             [
-                [Some([(x + n - 1) % n, y]), Some([(x + 1) % n, y])],
-                [Some([x, (y + m - 1) % m]), Some([x, (y + 1) % m])],
+                [[(x + n - 1) % n, y], [(x + 1) % n, y]],
+                [[x, (y + m - 1) % m], [x, (y + 1) % m]],
             ]
         }
     }
 
-    impl Surface<2> for ProjectivePlane {
-        fn neighborhood(shape: [usize; 2], i: WfcNdIndex<2>) -> [[Option<WfcNdIndex<2>>; 2]; 2] {
-            from_wrap_info([[false, true], [true, false]], shape, i)
+    impl WrappingSurface<2> for ProjectivePlane {
+        fn neighborhood(shape: [usize; 2], i: WfcNdIndex<2>) -> [[WfcNdIndex<2>; 2]; 2] {
+            let [x, y] = i;
+            let [n, m] = shape;
+
+            let xs = if x == 0 {
+                [[n - 1, m - y - 1], [1, y]]
+            } else if x == n - 1 {
+                [[x - 1, y], [0, m - y - 1]]
+            } else {
+                [[x - 1, y], [x + 1, y]]
+            };
+
+            let ys = if y == 0 {
+                [[n - x - 1, m - 1], [x, 1]]
+            } else if y == m - 1 {
+                [[x, y - 1], [n - x - 1, 0]]
+            } else {
+                [[x, y - 1], [x, y + 1]]
+            };
+
+            [xs, ys]
         }
     }
 
-    impl Surface<2> for KleinBottle {
-        fn neighborhood(shape: [usize; 2], i: WfcNdIndex<2>) -> [[Option<WfcNdIndex<2>>; 2]; 2] {
-            from_wrap_info([[false, true], [false, false]], shape, i)
+    impl WrappingSurface<2> for KleinBottle {
+        fn neighborhood(shape: [usize; 2], i: WfcNdIndex<2>) -> [[WfcNdIndex<2>; 2]; 2] {
+            let [x, y] = i;
+            let [n, m] = shape;
+
+            let xs = [[(x + n - 1) % n, y], [(x + 1) % n, y]];
+
+            let ys = if y == 0 {
+                [[n - x - 1, m - 1], [x, y + 1]]
+            } else if y == m - 1 {
+                [[x, y - 1], [n - x - 1, 0]]
+            } else {
+                [[x, y - 1], [x, y + 1]]
+            };
+
+            [xs, ys]
         }
-    }
-
-    #[inline]
-    fn from_wrap_info(
-        info: [[bool; 2]; 2],
-        shape: [usize; 2],
-        i: WfcNdIndex<2>,
-    ) -> [[Option<WfcNdIndex<2>>; 2]; 2] {
-        info.iter()
-            .enumerate()
-            .map(|(axis, &[l, r])| [wrap(axis, shape, i, -1, l), wrap(axis, shape, i, 1, r)])
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap()
-    }
-
-    #[inline]
-    fn wrap<const N: usize>(
-        axis: usize,
-        shape: [usize; N],
-        i: WfcNdIndex<N>,
-        d: isize,
-        rev: bool,
-    ) -> Option<WfcNdIndex<N>> {
-        let mut index = i;
-        let n = shape[axis];
-
-        index[axis] = (index[axis] as isize + d + n as isize) as usize % n;
-
-        if rev && !(0isize..n as isize).contains(&(index[axis] as isize + d)) {
-            index[axis] = n - index[axis];
-        }
-
-        Some(index)
     }
 }
 
 #[cfg(test)]
 mod test {
+    use crate::prelude::KleinBottle;
+    use crate::prelude::ProjectivePlane;
     use crate::prelude::Torus;
 
-    use super::Surface;
+    use super::wrapping::WrappingSurface;
 
     const SHAPE: [usize; 2] = [3, 3];
 
-    fn unwrap_res(res: [[Option<[usize; 2]>; 2]; 2]) -> [[[usize; 2]; 2]; 2] {
-        res.map(|[l, r]| [l.unwrap(), r.unwrap()])
-    }
-
-    fn test_neighborhood<S: Surface<2>>(idx: [usize; 2], exp: [[[usize; 2]; 2]; 2]) {
+    fn test_neighborhood<S: WrappingSurface<2>>(idx: [usize; 2], exp: [[[usize; 2]; 2]; 2]) {
         let res = S::neighborhood(SHAPE, idx);
 
-        assert_eq!(exp, unwrap_res(res))
+        assert_eq!(exp, res)
     }
 
     #[test]
@@ -133,5 +142,23 @@ mod test {
         test_neighborhood::<Torus>([1, 1], [[[0, 1], [2, 1]], [[1, 0], [1, 2]]]);
         test_neighborhood::<Torus>([2, 0], [[[1, 0], [0, 0]], [[2, 2], [2, 1]]]);
         test_neighborhood::<Torus>([0, 2], [[[2, 2], [1, 2]], [[0, 1], [0, 0]]]);
+    }
+
+    #[test]
+    fn projective_plane() {
+        test_neighborhood::<ProjectivePlane>([0, 0], [[[2, 2], [1, 0]], [[2, 2], [0, 1]]]);
+        test_neighborhood::<ProjectivePlane>([0, 2], [[[2, 0], [1, 2]], [[0, 1], [2, 0]]]);
+        test_neighborhood::<ProjectivePlane>([1, 1], [[[0, 1], [2, 1]], [[1, 0], [1, 2]]]);
+        test_neighborhood::<ProjectivePlane>([2, 0], [[[1, 0], [0, 2]], [[0, 2], [2, 1]]]);
+        test_neighborhood::<ProjectivePlane>([0, 2], [[[2, 0], [1, 2]], [[0, 1], [2, 0]]]);
+    }
+
+    #[test]
+    fn klein_bottle() {
+        test_neighborhood::<KleinBottle>([0, 0], [[[2, 0], [1, 0]], [[2, 2], [0, 1]]]);
+        test_neighborhood::<KleinBottle>([0, 2], [[[2, 2], [1, 2]], [[0, 1], [2, 0]]]);
+        test_neighborhood::<KleinBottle>([1, 1], [[[0, 1], [2, 1]], [[1, 0], [1, 2]]]);
+        test_neighborhood::<KleinBottle>([2, 0], [[[1, 0], [0, 0]], [[0, 2], [2, 1]]]);
+        test_neighborhood::<KleinBottle>([0, 2], [[[2, 2], [1, 2]], [[0, 1], [2, 0]]]);
     }
 }
