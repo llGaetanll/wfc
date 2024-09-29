@@ -51,7 +51,13 @@ pub mod wrapping {
 
     impl Surface<2> for Torus {
         fn neighborhood(shape: [usize; 2], i: WfcNdIndex<2>) -> [[Option<WfcNdIndex<2>>; 2]; 2] {
-            from_wrap_info([[false, false], [false, false]], shape, i)
+            let [x, y] = i;
+            let [n, m] = shape;
+
+            [
+                [Some([(x + n - 1) % n, y]), Some([(x + 1) % n, y])],
+                [Some([x, (y + m - 1) % m]), Some([x, (y + 1) % m])],
+            ]
         }
     }
 
@@ -99,5 +105,33 @@ pub mod wrapping {
         }
 
         Some(index)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::prelude::Torus;
+
+    use super::Surface;
+
+    const SHAPE: [usize; 2] = [3, 3];
+
+    fn unwrap_res(res: [[Option<[usize; 2]>; 2]; 2]) -> [[[usize; 2]; 2]; 2] {
+        res.map(|[l, r]| [l.unwrap(), r.unwrap()])
+    }
+
+    fn test_neighborhood<S: Surface<2>>(idx: [usize; 2], exp: [[[usize; 2]; 2]; 2]) {
+        let res = S::neighborhood(SHAPE, idx);
+
+        assert_eq!(exp, unwrap_res(res))
+    }
+
+    #[test]
+    fn torus() {
+        test_neighborhood::<Torus>([0, 0], [[[2, 0], [1, 0]], [[0, 2], [0, 1]]]);
+        test_neighborhood::<Torus>([0, 2], [[[2, 2], [1, 2]], [[0, 1], [0, 0]]]);
+        test_neighborhood::<Torus>([1, 1], [[[0, 1], [2, 1]], [[1, 0], [1, 2]]]);
+        test_neighborhood::<Torus>([2, 0], [[[1, 0], [0, 0]], [[2, 2], [2, 1]]]);
+        test_neighborhood::<Torus>([0, 2], [[[2, 2], [1, 2]], [[0, 1], [0, 0]]]);
     }
 }
